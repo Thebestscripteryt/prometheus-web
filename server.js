@@ -9,6 +9,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const LUA_SRC_DIR = path.join(__dirname, "lua-src");
 const TMP_DIR = path.join(__dirname, "tmp");
+const LOCAL_LUA_BIN = path.join(__dirname, "vendor", "bin", "lua5.1");
+const LUA_BIN = fs.existsSync(LOCAL_LUA_BIN) ? LOCAL_LUA_BIN : "lua5.1";
 
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
@@ -31,7 +33,7 @@ function runObfuscation(sourceCode, preset) {
       const args = ["prometheus-main.lua", "--preset", preset, "--out", outPath, inPath];
 
       execFile(
-        "lua5.1",
+        LUA_BIN,
         args,
         { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
         (err, stdout, stderr) => {
