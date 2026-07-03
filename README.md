@@ -7,11 +7,19 @@ pick a preset, get obfuscated output — no CLI needed.
 
 1. Push this folder to a GitHub repo.
 2. In Render: **New +** → **Web Service** → connect the repo.
-3. Render should auto-detect `render.yaml`. If not, set manually:
-   - **Build Command:** `apt-get update && apt-get install -y lua5.1 && npm install`
-   - **Start Command:** `npm start`
-   - **Runtime:** Node
-4. Deploy. First build takes a bit longer since it installs `lua5.1` via apt.
+3. Render should auto-detect `render.yaml` and build from the `Dockerfile`.
+   If it doesn't, set manually in the service settings:
+   - **Runtime:** Docker
+   - **Dockerfile Path:** `./Dockerfile`
+4. Deploy. First build takes a bit longer since it installs `lua5.1` via apt
+   inside the Docker image.
+
+> Note: Render's native "Node" runtime build environment does **not** allow
+> `apt-get install` (it's a non-root, read-only filesystem outside the app
+> dir), so a plain `Build Command: apt-get update && apt-get install -y
+> lua5.1 && npm install` will fail with `Read-only file system`. Using the
+> Docker runtime (as above) fixes this, since the Dockerfile's `RUN apt-get`
+> step runs at image-build time with full root access.
 
 ## Run locally
 

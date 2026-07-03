@@ -1,7 +1,6 @@
 services:
   - type: web
     name: prometheus-obfuscator
-    runtime: nix          # ← changed from 'node'
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
