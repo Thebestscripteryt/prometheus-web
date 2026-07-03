@@ -124,10 +124,10 @@ return {
         -- Obfuscation steps
         Steps = {
             {
-                Name = "Vmify";
+                Name = "ProxifyLocals";
                 Settings = {
-                    
-                };
+                    LiteralType = "string";
+                }
             },
             {
                 Name = "EncryptStrings";
