@@ -1,10 +1,7 @@
 services:
   - type: web
     name: prometheus-obfuscator
-    runtime: node
+    runtime: nix          # ← changed from 'node'
     plan: free
-    buildCommand: apt-get update && apt-get install -y lua5.1 && npm install
+    buildCommand: npm install
     startCommand: npm start
-    envVars:
-      - key: NODE_VERSION
-        value: 18.20.4
