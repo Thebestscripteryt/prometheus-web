@@ -19,7 +19,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
-const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong"];
+const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
 function runObfuscation(sourceCode, preset) {
   return new Promise((resolve, reject) => {
