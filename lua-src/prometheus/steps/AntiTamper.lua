@@ -1,17 +1,9 @@
 -- This Script is Part of the Prometheus Obfuscator by Levno_710
 --
--- AntiTamper.lua (Ultimate Version)
+-- AntiTamper.lua (Final Fix)
 --
--- This Step injects a multi‑layer anti‑tamper system that detects:
---   • Forbidden global variables
---   • Debug hooks and coroutine modifications
---   • Roblox service integrity (if game exists)
---   • Instance property/type corruption
---   • Enum validity
---   • Raw environment access
---   • (Optional) debug library hook detection
---
--- Uses the battle‑tested anti_tamper routine (July 2026) – no false positives.
+-- Injects a comprehensive anti‑tamper system (Roblox + generic Lua) without
+-- breaking the compiler. Uses the same do‑block insertion as the original step.
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -21,7 +13,7 @@ local Enums = require("prometheus.enums");
 local logger = require("logger");
 
 local AntiTamper = Step:extend();
-AntiTamper.Description = "Injects a comprehensive anti‑tamper system (supports Roblox & generic Lua).";
+AntiTamper.Description = "Injects a multi‑layer anti‑tamper system (supports Roblox & generic Lua).";
 AntiTamper.Name = "Anti Tamper";
 
 AntiTamper.SettingsDescriptor = {
@@ -48,10 +40,12 @@ function AntiTamper:apply(ast, pipeline)
         return ast;
     end
 
-    -- The full anti‑tamper function (from the provided file), with conditional debug checks.
-    -- We embed it as a string and then call it at the top of the script.
-    local antiTamperCode = string.format([[
-        local function anti_tamper(diagnostic_mode)
+    -- The full anti‑tamper function (from your file) with two parameters:
+    --   diagnostic_mode : boolean
+    --   use_debug       : boolean (controls the debug.gethook check)
+    -- We embed it using a long string delimiter that won't appear in the code.
+    local antiTamperFunc = [=[
+        local function anti_tamper(diagnostic_mode, use_debug)
             local report = {
                 hard_failures = {},
                 soft_signals = {},
@@ -160,8 +154,7 @@ function AntiTamper:apply(ast, pipeline)
             end
 
             local function check_debug_hook()
-                -- Only run if debug checks are enabled (controlled by the setting).
-                if not %s then return end
+                if not use_debug then return end
 
                 if type(debug) ~= "table" then
                     pass("debug_table_unavailable", true)
@@ -558,7 +551,7 @@ function AntiTamper:apply(ast, pipeline)
 
             -- Run all checks
             check_forbidden_globals()
-            check_debug_hook()       -- will be skipped if UseDebug is false
+            check_debug_hook()
             check_coroutine_state()
             check_roblox_services()
             check_instance_properties()
@@ -580,18 +573,25 @@ function AntiTamper:apply(ast, pipeline)
 
             return true
         end
+    ]=]
 
-        -- Execute the anti‑tamper check with the current settings.
-        anti_tamper(%s)
-    ]], tostring(self.UseDebug), tostring(self.DiagnosticMode))
+    -- Build the final code: a do block that defines and calls the function.
+    local useDebugStr = self.UseDebug and "true" or "false"
+    local diagStr = self.DiagnosticMode and "true" or "false"
+    local code = string.format([[
+        do
+            %s
+            anti_tamper(%s, %s)
+        end
+    ]], antiTamperFunc, diagStr, useDebugStr)
 
-    -- Parse the generated code and insert it as the first statement.
-    local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(antiTamperCode)
-    local doStat = parsed.body.statements[1]
-    doStat.body.scope:setParent(ast.body.scope)
-    table.insert(ast.body.statements, 1, doStat)
+    -- Parse and insert exactly like the original step.
+    local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code);
+    local doStat = parsed.body.statements[1];
+    doStat.body.scope:setParent(ast.body.scope);
+    table.insert(ast.body.statements, 1, doStat);
 
-    return ast
+    return ast;
 end
 
-return AntiTamper
+return AntiTamper;
