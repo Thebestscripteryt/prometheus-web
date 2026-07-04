@@ -69,15 +69,15 @@ return {
         -- Obfuscation steps
         Steps = {
             {
-                Name = "EncryptStrings";
+                Name = "WatermarkCheck";
                 Settings = {
-
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
                 };
             },
             {
-                Name = "AntiTamper";
+                Name = "EncryptStrings";
                 Settings = {
-                    UseDebug = false;
+
                 };
             },
             {
@@ -123,6 +123,12 @@ return {
         Seed = 0;
         -- Obfuscation steps
         Steps = {
+            {
+                Name = "WatermarkCheck";
+                Settings = {
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
+                };
+            },
             {
                 Name = "ProxifyLocals";
                 Settings = {
@@ -188,7 +194,7 @@ return {
         {
             Name = "WatermarkCheck";
             Settings = {
-                Content = "This script is protected by Prometheus Ultra",
+                Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
             };
         },
 
