@@ -81,7 +81,13 @@ function AntiTamper:apply(ast, pipeline)
                     valid = false;
                 end
 
-                if debug.getupvalue(funcs[i], 1) then
+                -- debug.getupvalue errors with "invalid index" rather than
+                -- returning nil when the function has no upvalue at that slot
+                -- (true for C functions like these). Guard with pcall so a
+                -- clean function just fails safe instead of crashing the
+                -- whole obfuscated script.
+                local getupvalOk, getupvalResult = pcall(debug.getupvalue, funcs[i], 1);
+                if getupvalOk and getupvalResult then
                     valid = false;
                 end
 
