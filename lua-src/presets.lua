@@ -170,5 +170,102 @@ return {
                 }
             },
         }
-    },
+    };
+    ["Ultra"] = {
+    LuaVersion = "LuaU",
+    VarNamePrefix = "",
+    NameGenerator = "MangledShuffled",
+    PrettyPrint = false,
+    Seed = 0,
+    Steps = {
+        -- 1. Add vararg to all functions
+        {
+            Name = "AddVararg";
+            Settings = {};
+        },
+
+        -- 2. Watermark check (optional – can comment out)
+        {
+            Name = "WatermarkCheck";
+            Settings = {
+                Content = "This script is protected by Prometheus Ultra",
+            };
+        },
+
+        -- 3. Split strings into tiny chunks (makes encryption harder)
+        {
+            Name = "SplitStrings";
+            Settings = {
+                Treshold = 1;               -- 100% of strings affected
+                MinLength = 1;              -- shortest chunk = 1 char
+                MaxLength = 6;              -- max chunk length (random)
+                ConcatenationType = "custom"; -- most complex reassembly
+                CustomFunctionType = "local"; -- each scope gets its own functions
+                CustomLocalFunctionsCount = 5; -- multiple local functions per scope
+            };
+        },
+
+        -- 4. Encrypt all strings (works on the chunks)
+        {
+            Name = "EncryptStrings";
+            Settings = {}; -- no extra settings, uses default encryption
+        },
+
+        -- 5. Turn every number into an expression (must come before ConstantArray)
+        {
+            Name = "NumbersToExpressions";
+            Settings = {
+                Treshold = 1;            -- all numbers
+                InternalTreshold = 0.1;  -- very low chance of using plain numbers (more nesting)
+            };
+        },
+
+        -- 6. Extract all constants into an array (strings, numbers, booleans, nil)
+        {
+            Name = "ConstantArray";
+            Settings = {
+                Treshold = 1;               -- all constants
+                StringsOnly = false;        -- include all types
+                Shuffle = true;             -- random order
+                Rotate = true;              -- rotate the array (with runtime fix)
+                LocalWrapperTreshold = 1;   -- every function gets local wrappers
+                LocalWrapperCount = 10;     -- 10 wrappers per scope
+                LocalWrapperArgCount = 20;  -- each wrapper takes 20 args
+                MaxWrapperOffset = 65535;   -- large offset range
+                Encoding = "base64";        -- encode strings in base64
+            };
+        },
+
+        -- 7. Proxify all locals (hide variable names behind metatables)
+        {
+            Name = "ProxifyLocals";
+            Settings = {
+                LiteralType = "any";        -- use random literal types (string, number, dict)
+            };
+        },
+
+        -- 8. Anti‑tamper (your upgraded version)
+        {
+            Name = "AntiTamper";
+            Settings = {
+                UseDebug = true;           -- enable debug checks
+                DiagnosticMode = false;    -- error on detection
+            };
+        },
+
+        -- 9. Wrap everything in a function (multiple times for nesting)
+        {
+            Name = "WrapInFunction";
+            Settings = {
+                Iterations = 3;             -- wrap 3 times
+            };
+        },
+
+        -- 10. VMify – the final compilation to custom bytecode
+        {
+            Name = "Vmify";
+            Settings = {};
+        },
+    }
+}
 }
