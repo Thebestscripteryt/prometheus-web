@@ -280,7 +280,9 @@ function ProifyLocals:apply(ast, pipeline)
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
             -- Apply Only to Some Variables if Treshold is non 1
             if localMetatableInfo then
-                return Ast.AssignmentIndexing(node, Ast.StringExpression(localMetatableInfo.valueName));
+                local vexp = Ast.VariableExpression(node.scope, node.id);
+                vexp.__ignoreProxifyLocals = true;
+                return Ast.AssignmentIndexing(vexp, Ast.StringExpression(localMetatableInfo.valueName));
             end
         end
 
