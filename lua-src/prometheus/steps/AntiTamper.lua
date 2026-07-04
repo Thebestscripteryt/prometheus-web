@@ -71,7 +71,13 @@ function AntiTamper:apply(ast, pipeline)
                     valid = false;
                 end
 
-                if debug.getlocal(funcs[i], 1) then
+                -- debug.getlocal expects a stack level or thread as its first
+                -- argument, not a function, so calling it on funcs[i] always
+                -- errors rather than tampering-detecting anything. Guard with
+                -- pcall so a real function value here just fails safe instead
+                -- of crashing the whole obfuscated script.
+                local getlocalOk, getlocalResult = pcall(debug.getlocal, funcs[i], 1);
+                if getlocalOk and getlocalResult then
                     valid = false;
                 end
 
