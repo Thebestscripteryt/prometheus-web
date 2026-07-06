@@ -701,7 +701,9 @@ function Compiler:emitContainerFuncBody()
         }),
         Ast.ReturnStatement{
             Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.unpackVar), {
-                Ast.VariableExpression(self.containerFuncScope, self.returnVar)
+                Ast.VariableExpression(self.containerFuncScope, self.returnVar),
+                Ast.NumberExpression(1),
+                Ast.IndexExpression(Ast.VariableExpression(self.containerFuncScope, self.returnVar), Ast.StringExpression("n")),
             });
         }
     }
@@ -913,6 +915,45 @@ function Compiler:unpack(scope)
     return Ast.VariableExpression(self.scope, self.unpackVar);
 end
 
+-- Packs all values produced by exprList into a table, evaluating each expression
+-- exactly once. If the last expression in exprList is itself a call (or "...") it
+-- may contribute more than one value, following normal Lua call-argument semantics.
+-- Unlike a plain `{ ... }` table constructor, this also records the true number of
+-- values (via select('#', ...)) under the "n" key, since Lua's `#` operator is
+-- unreliable once a table has a nil hole (e.g. a trailing nil return value).
+-- Callers MUST use this recorded "n" (not `#`) when later unpacking, or trailing
+-- nil values will silently be dropped.
+function Compiler:packAll(scope, exprList)
+    scope:addReferenceToHigherScope(self.scope, self.selectVar);
+    local innerScope = Scope:new(scope);
+    return Ast.FunctionCallExpression(
+        Ast.FunctionLiteralExpression({Ast.VarargExpression()}, Ast.Block({
+            Ast.ReturnStatement({
+                Ast.TableConstructorExpression({
+                    Ast.KeyedTableEntry(Ast.StringExpression("n"), Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.selectVar), {
+                        Ast.StringExpression("#"),
+                        Ast.VarargExpression(),
+                    })),
+                    Ast.TableEntry(Ast.VarargExpression()),
+                })
+            })
+        }, innerScope)),
+        exprList
+    );
+end
+
+-- Unpacks a table (held in register `reg`) produced by packAll, using its recorded
+-- "n" count rather than `#`, so trailing nil return values are correctly forwarded
+-- instead of silently dropped.
+function Compiler:unpackAll(scope, reg)
+    scope:addReferenceToHigherScope(self.scope, self.unpackVar);
+    return Ast.FunctionCallExpression(self:unpack(scope), {
+        self:register(scope, reg),
+        Ast.NumberExpression(1),
+        Ast.IndexExpression(self:register(scope, reg), Ast.StringExpression("n")),
+    });
+end
+
 function Compiler:env(scope)
     scope:addReferenceToHigherScope(self.scope, self.envVar);
     return Ast.VariableExpression(self.scope, self.envVar);
@@ -1009,7 +1050,7 @@ function Compiler:compileTopNode(node)
     self:compileBlock(node.body, 0);
     if(self.activeBlock.advanceToNextBlock) then
         self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
-        self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({})), {self.RETURN_REGISTER}, {}, false)
+        self:addStatement(self:setReturn(self.activeBlock.scope, self:packAll(self.activeBlock.scope, {})), {self.RETURN_REGISTER}, {}, false)
         self.activeBlock.advanceToNextBlock = false;
     end
 
@@ -1090,7 +1131,7 @@ function Compiler:compileFunction(node, funcDepth)
     self:compileBlock(node.body, funcDepth);
     if(self.activeBlock.advanceToNextBlock) then
         self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
-        self:addStatement(self:setReturn(self.activeBlock.scope, Ast.TableConstructorExpression({})), {self.RETURN_REGISTER}, {}, false);
+        self:addStatement(self:setReturn(self.activeBlock.scope, self:packAll(self.activeBlock.scope, {})), {self.RETURN_REGISTER}, {}, false);
         self.activeBlock.advanceToNextBlock = false;
     end
 
@@ -1153,19 +1194,17 @@ function Compiler:compileStatement(statement, funcDepth)
     local scope = self.activeBlock.scope;
     -- Return Statement
     if(statement.kind == AstKind.ReturnStatement) then
-        local entries = {};
+        local exprList = {};
         local regs = {};
 
         for i, expr in ipairs(statement.args) do
             if i == #statement.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
                 local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
-                table.insert(entries, Ast.TableEntry(Ast.FunctionCallExpression(
-                    self:unpack(scope),
-                    {self:register(scope, reg)})));
+                table.insert(exprList, self:unpackAll(scope, reg));
                 table.insert(regs, reg);
             else
                 local reg = self:compileExpression(expr, funcDepth, 1)[1];
-                table.insert(entries, Ast.TableEntry(self:register(scope, reg)));
+                table.insert(exprList, self:register(scope, reg));
                 table.insert(regs, reg);
             end
         end
@@ -1174,7 +1213,7 @@ function Compiler:compileStatement(statement, funcDepth)
             self:freeRegister(reg, false);
         end
 
-        self:addStatement(self:setReturn(scope, Ast.TableConstructorExpression(entries)), {self.RETURN_REGISTER}, regs, false);
+        self:addStatement(self:setReturn(scope, self:packAll(scope, exprList)), {self.RETURN_REGISTER}, regs, false);
         self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
         self.activeBlock.advanceToNextBlock = false;
         return;
@@ -1237,9 +1276,7 @@ function Compiler:compileStatement(statement, funcDepth)
         for i, expr in ipairs(statement.args) do
             if i == #statement.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
                 local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
-                table.insert(args, Ast.FunctionCallExpression(
-                    self:unpack(scope),
-                    {self:register(scope, reg)}));
+                table.insert(args, self:unpackAll(scope, reg));
                 table.insert(regs, reg);
             else
                 local reg = self:compileExpression(expr, funcDepth, 1)[1];
@@ -1268,9 +1305,7 @@ function Compiler:compileStatement(statement, funcDepth)
         for i, expr in ipairs(statement.args) do
             if i == #statement.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
                 local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
-                table.insert(args, Ast.FunctionCallExpression(
-                    self:unpack(scope),
-                    {self:register(scope, reg)}));
+                table.insert(args, self:unpackAll(scope, reg));
                 table.insert(regs, reg);
             else
                 local reg = self:compileExpression(expr, funcDepth, 1)[1];
@@ -2017,9 +2052,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         for i, expr in ipairs(expression.args) do
             if i == #expression.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
                 local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
-                table.insert(args, Ast.FunctionCallExpression(
-                    self:unpack(scope),
-                    {self:register(scope, reg)}));
+                table.insert(args, self:unpackAll(scope, reg));
                 table.insert(regs, reg);
             else
                 local reg = self:compileExpression(expr, funcDepth, 1)[1];
@@ -2029,12 +2062,12 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         end
 
         if(returnAll) then
-            self:addStatement(self:setRegister(scope, retRegs[1], Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, baseReg), args))}), {retRegs[1]}, {baseReg, unpack(regs)}, true);
+            self:addStatement(self:setRegister(scope, retRegs[1], self:packAll(scope, {Ast.FunctionCallExpression(self:register(scope, baseReg), args)})), {retRegs[1]}, {baseReg, unpack(regs)}, true);
         else
             if(numReturns > 1) then
                 local tmpReg = self:allocRegister(false);
     
-                self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, baseReg), args))}), {tmpReg}, {baseReg, unpack(regs)}, true);
+                self:addStatement(self:setRegister(scope, tmpReg, self:packAll(scope, {Ast.FunctionCallExpression(self:register(scope, baseReg), args)})), {tmpReg}, {baseReg, unpack(regs)}, true);
     
                 for i, reg in ipairs(retRegs) do
                     self:addStatement(self:setRegister(scope, reg, Ast.IndexExpression(self:register(scope, tmpReg), Ast.NumberExpression(i))), {reg}, {tmpReg}, false);
@@ -2073,9 +2106,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         for i, expr in ipairs(expression.args) do
             if i == #expression.args and (expr.kind == AstKind.FunctionCallExpression or expr.kind == AstKind.PassSelfFunctionCallExpression or expr.kind == AstKind.VarargExpression) then
                 local reg = self:compileExpression(expr, funcDepth, self.RETURN_ALL)[1];
-                table.insert(args, Ast.FunctionCallExpression(
-                    self:unpack(scope),
-                    {self:register(scope, reg)}));
+                table.insert(args, self:unpackAll(scope, reg));
                 table.insert(regs, reg);
             else
                 local reg = self:compileExpression(expr, funcDepth, 1)[1];
@@ -2091,9 +2122,9 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
             self:addStatement(self:setRegister(scope, tmpReg, Ast.IndexExpression(self:register(scope, baseReg), self:register(scope, tmpReg))), {tmpReg}, {baseReg, tmpReg}, false);
 
             if returnAll then
-                self:addStatement(self:setRegister(scope, retRegs[1], Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, tmpReg), args))}), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
+                self:addStatement(self:setRegister(scope, retRegs[1], self:packAll(scope, {Ast.FunctionCallExpression(self:register(scope, tmpReg), args)})), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
             else
-                self:addStatement(self:setRegister(scope, tmpReg, Ast.TableConstructorExpression{Ast.TableEntry(Ast.FunctionCallExpression(self:register(scope, tmpReg), args))}), {tmpReg}, {tmpReg, unpack(regs)}, true);
+                self:addStatement(self:setRegister(scope, tmpReg, self:packAll(scope, {Ast.FunctionCallExpression(self:register(scope, tmpReg), args)})), {tmpReg}, {tmpReg, unpack(regs)}, true);
 
                 for i, reg in ipairs(retRegs) do
                     self:addStatement(self:setRegister(scope, reg, Ast.IndexExpression(self:register(scope, tmpReg), Ast.NumberExpression(i))), {reg}, {tmpReg}, false);
@@ -2334,9 +2365,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
                         local value = entry.value;
                         if i == #expression.entries and (value.kind == AstKind.FunctionCallExpression or value.kind == AstKind.PassSelfFunctionCallExpression or value.kind == AstKind.VarargExpression) then
                             local reg = self:compileExpression(entry.value, funcDepth, self.RETURN_ALL)[1];
-                            table.insert(entries, Ast.TableEntry(Ast.FunctionCallExpression(
-                                self:unpack(scope),
-                                {self:register(scope, reg)})));
+                            table.insert(entries, Ast.TableEntry(self:unpackAll(scope, reg)));
                             table.insert(entryRegs, reg);
                         else
                             local reg = self:compileExpression(entry.value, funcDepth, 1)[1];
