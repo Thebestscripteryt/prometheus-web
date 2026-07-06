@@ -17,6 +17,29 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 *
 
 const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
+const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+
+function extractCleanError(rawStderr, rawStdout, fallbackMessage) {
+  const raw = (rawStderr || rawStdout || fallbackMessage || "Obfuscation failed.").toString();
+  const clean = raw.replace(ANSI_PATTERN, "");
+
+  // Prometheus prints its own diagnostic lines like:
+  //   PROMETHEUS: Parsing Error at Position 3:5, unexpected token ...
+  // Prefer that over the generic Lua interpreter wrapper + stack traceback that follows it.
+  // Search from the end, since the actual error is logged right before the process dies -
+  // earlier PROMETHEUS: lines are just progress messages ("Parsing ...", "Applying Step ...").
+  const lines = clean.split("\n").map((l) => l.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith("PROMETHEUS:") && /error/i.test(lines[i])) {
+      return lines[i].replace(/^PROMETHEUS:\s*/, "");
+    }
+  }
+
+  // Fall back to the first non-stack-trace looking line.
+  const firstUseful = lines.find((l) => !l.startsWith("stack traceback") && !l.startsWith("[C]:") && !l.startsWith("./") && !/:\d+:\s*in function/.test(l));
+  return firstUseful || lines[0] || "Obfuscation failed.";
+}
+
 function runObfuscation(sourceCode, preset) {
   return new Promise((resolve, reject) => {
     const args = ["prometheus-main.lua", "--preset", preset, "--out", "-", "-"];
@@ -27,10 +50,10 @@ function runObfuscation(sourceCode, preset) {
       { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
-          return reject(new Error(stderr || stdout || err.message));
+          return reject(new Error(extractCleanError(stderr, stdout, err.message)));
         }
         if (!stdout) {
-          return reject(new Error("Obfuscator did not produce output. " + stderr));
+          return reject(new Error(extractCleanError(stderr, stdout, "Obfuscator did not produce output.")));
         }
         resolve(stdout);
       }
@@ -59,7 +82,9 @@ app.post("/api/obfuscate", upload.none(), async (req, res) => {
     const result = await runObfuscation(code, preset);
     res.json({ output: result });
   } catch (err) {
-    res.status(500).json({ error: err.message || "Obfuscation failed." });
+    const message = err.message || "Obfuscation failed.";
+    const type = /Parsing Error/i.test(message) ? "syntax_error" : "obfuscation_error";
+    res.status(400).json({ error: message, type });
   }
 });
 
