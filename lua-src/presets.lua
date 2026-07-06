@@ -226,7 +226,34 @@ return {
             };
         },
 
-        -- 6. Extract all constants into an array (strings, numbers, booleans, nil)
+        -- 6. Proxify all locals (hide variable names behind metatables)
+        {
+            Name = "ProxifyLocals";
+            Settings = {
+                LiteralType = "any";        -- use random literal types (string, number, dict)
+            };
+        },
+
+        -- 7. Anti‑tamper (your upgraded version)
+        {
+            Name = "AntiTamper";
+            Settings = {
+                UseDebug = true;           -- enable debug checks
+                DiagnosticMode = false;    -- error on detection
+            };
+        },
+
+        -- 8. VMify – compile the real logic to custom bytecode BEFORE the
+        -- AST-bloating steps below, so the VM compiler isn't asked to
+        -- compile already-massively-expanded code (this was the source of
+        -- the hang/crash: ConstantArray + NumbersToExpressions run first
+        -- used to blow up the AST size by >100x before Vmify ever saw it)
+        {
+            Name = "Vmify";
+            Settings = {};
+        },
+
+        -- 9. Extract all constants into an array (strings, numbers, booleans, nil)
         {
             Name = "ConstantArray";
             Settings = {
@@ -242,35 +269,12 @@ return {
             };
         },
 
-        -- 7. Proxify all locals (hide variable names behind metatables)
-        {
-            Name = "ProxifyLocals";
-            Settings = {
-                LiteralType = "any";        -- use random literal types (string, number, dict)
-            };
-        },
-
-        -- 8. Anti‑tamper (your upgraded version)
-        {
-            Name = "AntiTamper";
-            Settings = {
-                UseDebug = true;           -- enable debug checks
-                DiagnosticMode = false;    -- error on detection
-            };
-        },
-
-        -- 9. Wrap everything in a function (multiple times for nesting)
+        -- 10. Wrap everything in a function (multiple times for nesting)
         {
             Name = "WrapInFunction";
             Settings = {
                 Iterations = 3;             -- wrap 3 times
             };
-        },
-
-        -- 10. VMify – the final compilation to custom bytecode
-        {
-            Name = "Vmify";
-            Settings = {};
         },
     }
 }
