@@ -3,16 +3,12 @@ const multer = require("multer");
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const LUA_SRC_DIR = path.join(__dirname, "lua-src");
-const TMP_DIR = path.join(__dirname, "tmp");
 const LOCAL_LUA_BIN = path.join(__dirname, "vendor", "bin", "lua5.1");
 const LUA_BIN = fs.existsSync(LOCAL_LUA_BIN) ? LOCAL_LUA_BIN : "lua5.1";
-
-if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(path.join(__dirname, "public")));
@@ -23,38 +19,26 @@ const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
 function runObfuscation(sourceCode, preset) {
   return new Promise((resolve, reject) => {
-    const id = crypto.randomBytes(8).toString("hex");
-    const inPath = path.join(TMP_DIR, `${id}.in.lua`);
-    const outPath = path.join(TMP_DIR, `${id}.out.lua`);
+    const args = ["prometheus-main.lua", "--preset", preset, "--out", "-", "-"];
 
-    fs.writeFile(inPath, sourceCode, (writeErr) => {
-      if (writeErr) return reject(writeErr);
-
-      const args = ["prometheus-main.lua", "--preset", preset, "--out", outPath, inPath];
-
-      execFile(
-        LUA_BIN,
-        args,
-        { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
-        (err, stdout, stderr) => {
-          const cleanup = () => {
-            fs.unlink(inPath, () => {});
-            fs.unlink(outPath, () => {});
-          };
-
-          if (err) {
-            cleanup();
-            return reject(new Error(stderr || stdout || err.message));
-          }
-
-          fs.readFile(outPath, "utf8", (readErr, data) => {
-            cleanup();
-            if (readErr) return reject(new Error("Obfuscator did not produce output. " + (stderr || stdout)));
-            resolve(data);
-          });
+    const child = execFile(
+      LUA_BIN,
+      args,
+      { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          return reject(new Error(stderr || stdout || err.message));
         }
-      );
-    });
+        if (!stdout) {
+          return reject(new Error("Obfuscator did not produce output. " + stderr));
+        }
+        resolve(stdout);
+      }
+    );
+
+    child.stdin.on("error", () => {}); // avoid unhandled EPIPE if the process exits early on bad input
+    child.stdin.write(sourceCode);
+    child.stdin.end();
   });
 }
 
