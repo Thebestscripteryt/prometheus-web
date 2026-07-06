@@ -264,7 +264,7 @@ return {
                 LocalWrapperTreshold = 0.9;   -- every function gets local wrappers
                 LocalWrapperCount = 10;     -- 10 wrappers per scope
                 LocalWrapperArgCount = 10;  -- each wrapper takes 20 args
-                MaxWrapperOffset = 5535;   -- large offset range
+                MaxWrapperOffset = 20000;   -- large offset range
                 Encoding = "base64";        -- encode strings in base64
             };
         },
