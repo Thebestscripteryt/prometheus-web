@@ -206,6 +206,45 @@ function ProifyLocals:apply(ast, pipeline)
     }));
 
 
+    -- Pre-scan: lock any local used as the base of a dotted Function Declaration
+    -- (e.g. `function Utils.foo() end`) BEFORE the main transform pass begins.
+    -- This must happen upfront: sibling statements are transformed in order, so if
+    -- we only locked upon reaching the FunctionDeclaration node, an earlier sibling
+    -- statement like `local Utils = {}` would already have been proxied by then,
+    -- leaving it mismatched with the (now-locked) later accesses.
+    -- The Vmify compiler also does not track this kind of reference the same way it
+    -- tracks normal reads/writes (`FunctionDeclaration` never calls `scope:addReference`
+    -- the way `VariableExpression`/`AssignmentVariable` do), which can lead to the base
+    -- register being freed/reused too early. Proxying such tables is not worth the risk,
+    -- so they are excluded from proxying entirely.
+    visitast(ast, function(node, data)
+        if(node.kind == AstKind.FunctionDeclaration and #node.indices > 0) then
+            disableMetatableInfo(node.scope, node.id);
+        end
+        -- Lock recursive-capable local functions (`local function name() ... end`).
+        -- A function of this kind can call itself by name from within its own body,
+        -- which is a self-reference to a variable that is still being initialized.
+        -- Proxying it wraps the variable in a metatable-based indirection that does
+        -- not reliably survive this kind of recursive self-reference under Vmify,
+        -- so these are excluded from proxying entirely.
+        if(node.kind == AstKind.LocalFunctionDeclaration) then
+            disableMetatableInfo(node.scope, node.id);
+        end
+        -- Lock all ids in `local a, b, ... = f()`-style declarations where the
+        -- number of ids exceeds the number of expressions (i.e. the trailing
+        -- expression is a call/vararg expected to expand into multiple values).
+        -- The per-id proxy-wrapping transform below assumes a 1:1 correspondence
+        -- between ids and expressions; when that assumption doesn't hold, it both
+        -- truncates the trailing call to a single value (by embedding it in a
+        -- keyed table entry) and silently substitutes nil for any id past the
+        -- first, dropping the call's additional return values entirely.
+        if(node.kind == AstKind.LocalVariableDeclaration and #node.ids > #node.expressions) then
+            for _, id in ipairs(node.ids) do
+                disableMetatableInfo(node.scope, id);
+            end
+        end
+    end, nil);
+
     visitast(ast, function(node, data)
         -- Lock for loop variables
         if(node.kind == AstKind.ForStatement) then
