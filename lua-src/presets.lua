@@ -35,12 +35,6 @@ return {
         -- Obfuscation steps
         Steps = {
             {
-                Name = "Vmify";
-                Settings = {
-                    
-                };
-            },
-            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold    = 1;
@@ -52,6 +46,18 @@ return {
                 Settings = {
 
                 }
+            },
+            -- Vmify must run LAST: it compiles the current AST into a custom
+            -- bytecode VM. Every other step should shape the *source logic*
+            -- first; if a size/wrapper-adding step runs after Vmify, it ends up
+            -- operating on the (already huge) compiled VM code instead of the
+            -- original logic, multiplying output size and compile time instead
+            -- of just adding to it.
+            {
+                Name = "Vmify";
+                Settings = {
+
+                };
             },
         }
     };
@@ -81,12 +87,6 @@ return {
                 };
             },
             {
-                Name = "Vmify";
-                Settings = {
-                    
-                };
-            },
-            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold    = 1;
@@ -107,6 +107,13 @@ return {
                 Settings = {
 
                 }
+            },
+            -- Vmify must run LAST (see note in the Weak preset above).
+            {
+                Name = "Vmify";
+                Settings = {
+
+                };
             },
         }
     };
@@ -148,12 +155,6 @@ return {
                 };
             },
             {
-                Name = "Vmify";
-                Settings = {
-                    
-                };
-            },
-            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold    = 1;
@@ -175,107 +176,136 @@ return {
 
                 }
             },
+            -- Vmify must run LAST (see note in the Weak preset above).
+            {
+                Name = "Vmify";
+                Settings = {
+
+                };
+            },
         }
     };
     ["Ultra"] = {
-    LuaVersion = "LuaU",
-    VarNamePrefix = "",
-    NameGenerator = "MangledShuffled",
-    PrettyPrint = false,
-    Seed = 0,
-    Steps = {
-        -- 1. Add vararg to all functions
-        {
-            Name = "AddVararg";
-            Settings = {};
-        },
+        LuaVersion = "LuaU",
+        VarNamePrefix = "",
+        NameGenerator = "MangledShuffled",
+        PrettyPrint = false,
+        Seed = 0,
+        Steps = {
+            -- 1. Add vararg to all functions
+            {
+                Name = "AddVararg";
+                Settings = {};
+            },
 
-        -- 2. Watermark check (optional – can comment out)
-        {
-            Name = "WatermarkCheck";
-            Settings = {
-                Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
-            };
-        },
+            -- 2. Watermark check
+            {
+                Name = "WatermarkCheck";
+                Settings = {
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
+                };
+            },
 
-        -- 3. Split strings into tiny chunks (makes encryption harder)
-        {
-            Name = "SplitStrings";
-            Settings = {
-                Treshold = 1;               -- 100% of strings affected
-                MinLength = 1;              -- shortest chunk = 1 char
-                MaxLength = 6;              -- max chunk length (random)
-                ConcatenationType = "custom"; -- most complex reassembly
-                CustomFunctionType = "local"; -- each scope gets its own functions
-                CustomLocalFunctionsCount = 5; -- multiple local functions per scope
-            };
-        },
+            -- 3. Split strings into chunks (makes encryption harder).
+            -- MaxLength raised from 6 -> 16 and CustomLocalFunctionsCount
+            -- lowered from 5 -> 3: a MaxLength of 6 turns even short strings
+            -- into a huge number of tiny chunks, each needing its own
+            -- reassembly code. This was the single biggest driver of both
+            -- output size and compile time; 16 keeps strings well-scrambled
+            -- with dramatically less generated code.
+            {
+                Name = "SplitStrings";
+                Settings = {
+                    Treshold = 1;
+                    MinLength = 1;
+                    MaxLength = 16;
+                    ConcatenationType = "custom";
+                    CustomFunctionType = "local";
+                    CustomLocalFunctionsCount = 3;
+                };
+            },
 
-        -- 4. Encrypt all strings (works on the chunks)
-        {
-            Name = "EncryptStrings";
-            Settings = {}; -- no extra settings, uses default encryption
-        },
+            -- 4. Encrypt all strings (works on the chunks)
+            {
+                Name = "EncryptStrings";
+                Settings = {};
+            },
 
-        -- 5. Turn every number into an expression (must come before ConstantArray)
-        {
-            Name = "NumbersToExpressions";
-            Settings = {
-                Treshold = 1;            -- all numbers
-                InternalTreshold = 0.1;  -- very low chance of using plain numbers (more nesting)
-            };
-        },
+            -- 5. Turn every number into an expression (must come before ConstantArray).
+            -- InternalTreshold raised from 0.1 -> 0.3: 0.1 meant almost every
+            -- number expression recursively nested into further sub-expressions,
+            -- compounding size for very little extra protection.
+            {
+                Name = "NumbersToExpressions";
+                Settings = {
+                    Treshold = 1;
+                    InternalTreshold = 0.3;
+                };
+            },
 
-        -- 6. Proxify all locals (hide variable names behind metatables)
-        {
-            Name = "ProxifyLocals";
-            Settings = {
-                LiteralType = "any";        -- use random literal types (string, number, dict)
-            };
-        },
+            -- 6. Proxify all locals (hide variable names behind metatables)
+            {
+                Name = "ProxifyLocals";
+                Settings = {
+                    LiteralType = "any";
+                };
+            },
 
-        -- 7. Anti‑tamper (your upgraded version)
-        {
-            Name = "AntiTamper";
-            Settings = {
-                UseDebug = true;           -- enable debug checks
-                DiagnosticMode = true;    -- error on detection
-            };
-        },
+            -- 7. Anti-tamper
+            {
+                Name = "AntiTamper";
+                Settings = {
+                    UseDebug = true;
+                    DiagnosticMode = true;
+                };
+            },
 
-        -- 8. VMify – compile the real logic to custom bytecode BEFORE the
-        -- AST-bloating steps below, so the VM compiler isn't asked to
-        -- compile already-massively-expanded code (this was the source of
-        -- the hang/crash: ConstantArray + NumbersToExpressions run first
-        -- used to blow up the AST size by >100x before Vmify ever saw it)
-        {
-            Name = "Vmify";
-            Settings = {};
-        },
+            -- 8. Extract all constants into an array (strings, numbers, booleans, nil).
+            -- LocalWrapperCount 10 -> 3, LocalWrapperArgCount 10 -> 5,
+            -- MaxWrapperOffset 20000 -> 2000: these wrapper functions are
+            -- generated PER SCOPE, so high counts multiply directly into
+            -- output size and compile time across every function in the
+            -- script. 3 wrappers of 5 args each still gives strong constant
+            -- obfuscation without the runaway cost.
+            {
+                Name = "ConstantArray";
+                Settings = {
+                    Treshold = 1;
+                    StringsOnly = false;
+                    Shuffle = true;
+                    Rotate = true;
+                    LocalWrapperTreshold = 1;
+                    LocalWrapperCount = 3;
+                    LocalWrapperArgCount = 5;
+                    MaxWrapperOffset = 2000;
+                    Encoding = "base64";
+                };
+            },
 
-        -- 9. Extract all constants into an array (strings, numbers, booleans, nil)
-        {
-            Name = "ConstantArray";
-            Settings = {
-                Treshold = 1;               -- all constants
-                StringsOnly = false;        -- include all types
-                Shuffle = true;             -- random order
-                Rotate = true;              -- rotate the array (with runtime fix)
-                LocalWrapperTreshold = 1;   -- every function gets local wrappers
-                LocalWrapperCount = 10;     -- 10 wrappers per scope
-                LocalWrapperArgCount = 10;  -- each wrapper takes 20 args
-                MaxWrapperOffset = 20000;   -- large offset range
-                Encoding = "base64";        -- encode strings in base64
-            };
-        },
+            -- 9. Wrap everything in a function.
+            -- Iterations 3 -> 1: each extra iteration re-wraps the ENTIRE
+            -- current output (already large from the steps above), so this
+            -- setting alone was roughly tripling final size and compile time.
+            {
+                Name = "WrapInFunction";
+                Settings = {
+                    Iterations = 1;
+                };
+            },
 
-        -- 10. Wrap everything in a function (multiple times for nesting)
-        {
-            Name = "WrapInFunction";
-            Settings = {
-                Iterations = 3;             -- wrap 3 times
-            };
-        },
+            -- 10. Vmify must run LAST: it compiles the current AST into a
+            -- custom bytecode VM. Every step above shapes the source logic
+            -- first; if ConstantArray/WrapInFunction ran after Vmify (as they
+            -- did in a previous version of this file), they'd operate on the
+            -- already-compiled VM code instead of the original logic,
+            -- multiplying size and compile time instead of just adding to it.
+            -- (This re-ordering, done for a mistaken performance reason, was
+            -- the actual root cause of the multi-hundred-thousand-percent
+            -- size blowup and near-hangs on real scripts.)
+            {
+                Name = "Vmify";
+                Settings = {};
+            },
+        }
     }
-}
 }
