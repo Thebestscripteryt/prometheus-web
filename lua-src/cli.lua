@@ -27,16 +27,16 @@ string.split = function(str, sep)
     return fields
 end
 
--- get all lines from a file, returns an empty
--- list/table if the file does not exist
-local function lines_from(file)
-    if not file_exists(file) then return {} end
-    local lines = {}
-    for line in io.lines(file) do
-      lines[#lines + 1] = line
-    end
-    return lines
-  end
+-- Reads the full contents of a file in one shot, returning an empty
+-- string if the file does not exist. Much faster than reading line-by-line
+-- into a table and re-joining, especially for large scripts.
+local function read_file(file)
+    local f = io.open(file, "rb")
+    if not f then return "" end
+    local content = f:read("*a")
+    f:close()
+    return content
+end
 
 -- CLI
 local config;
@@ -71,7 +71,7 @@ while i <= #arg do
                 Prometheus.Logger:error(string.format("The config file \"%s\" was not found!", filename));
             end
 
-            local content = table.concat(lines_from(filename), "\n");
+            local content = read_file(filename);
             -- Load Config from File
             local func = loadstring(content);
             -- Sandboxing
@@ -131,21 +131,37 @@ end
 config.LuaVersion = luaVersion or config.LuaVersion;
 config.PrettyPrint = prettyPrint ~= nil and prettyPrint or config.PrettyPrint;
 
-if not file_exists(sourceFile) then
+-- "-" is a conventional sentinel for stdin/stdout, letting callers (e.g. a web
+-- server) pipe source code in and read obfuscated output back out directly,
+-- without needing to create and clean up temporary files on disk.
+local useStdin = sourceFile == "-";
+local useStdout;
+
+if not useStdin and not file_exists(sourceFile) then
     Prometheus.Logger:error(string.format("The File \"%s\" was not found!", sourceFile));
 end
 
 if not outFile then
-    if sourceFile:sub(-4) == ".lua" then
+    if useStdin then
+        outFile = "-";
+    elseif sourceFile:sub(-4) == ".lua" then
         outFile = sourceFile:sub(0, -5) .. ".obfuscated.lua";
     else
         outFile = sourceFile .. ".obfuscated.lua";
     end
 end
+useStdout = outFile == "-";
 
-local source = table.concat(lines_from(sourceFile), "\n");
+local source = useStdin and io.stdin:read("*a") or read_file(sourceFile);
 local pipeline = Prometheus.Pipeline:fromConfig(config);
-local out = pipeline:apply(source, sourceFile);
+local out = pipeline:apply(source, useStdin and "stdin" or sourceFile);
+
+if useStdout then
+    io.stdout:write(out);
+    io.stdout:flush();
+    os.exit(0);
+end
+
 Prometheus.Logger:info(string.format("Writing output to \"%s\"", outFile));
 
 -- Write Output
