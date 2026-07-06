@@ -16,8 +16,12 @@ logger.LogLevel = {
 
 logger.logLevel = logger.LogLevel.Log;
 
+local function eprint(str)
+	io.stderr:write(tostring(str) .. "\n");
+end
+
 logger.debugCallback = function(...)
-	print(colors(config.NameUpper .. ": " ..  ..., "grey"));
+	eprint(colors(config.NameUpper .. ": " ..  ..., "grey"));
 end;
 function logger:debug(...)
 	if self.logLevel >= self.LogLevel.Debug then
@@ -26,7 +30,7 @@ function logger:debug(...)
 end
 
 logger.logCallback = function(...)
-	print(colors(config.NameUpper .. ": ", "magenta") .. ...);
+	eprint(colors(config.NameUpper .. ": ", "magenta") .. ...);
 end;
 function logger:log(...)
 	if self.logLevel >= self.LogLevel.Log then
@@ -41,7 +45,7 @@ function logger:info(...)
 end
 
 logger.warnCallback = function(...)
-	print(colors(config.NameUpper .. ": " .. ..., "yellow"));
+	eprint(colors(config.NameUpper .. ": " .. ..., "yellow"));
 end;
 function logger:warn(...)
 	if self.logLevel >= self.LogLevel.Warn then
@@ -50,7 +54,7 @@ function logger:warn(...)
 end
 
 logger.errorCallback = function(...)
-	print(colors(config.NameUpper .. ": " .. ..., "red"))
+	eprint(colors(config.NameUpper .. ": " .. ..., "red"))
 	error(...);
 end;
 function logger:error(...)
