@@ -263,7 +263,7 @@ return {
                 Rotate = true;              -- rotate the array (with runtime fix)
                 LocalWrapperTreshold = 1;   -- every function gets local wrappers
                 LocalWrapperCount = 10;     -- 10 wrappers per scope
-                LocalWrapperArgCount = 20;  -- each wrapper takes 20 args
+                LocalWrapperArgCount = 10;  -- each wrapper takes 20 args
                 MaxWrapperOffset = 65535;   -- large offset range
                 Encoding = "base64";        -- encode strings in base64
             };
