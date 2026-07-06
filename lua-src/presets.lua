@@ -261,7 +261,7 @@ return {
                 StringsOnly = false;        -- include all types
                 Shuffle = true;             -- random order
                 Rotate = true;              -- rotate the array (with runtime fix)
-                LocalWrapperTreshold = 0.9;   -- every function gets local wrappers
+                LocalWrapperTreshold = 1;   -- every function gets local wrappers
                 LocalWrapperCount = 10;     -- 10 wrappers per scope
                 LocalWrapperArgCount = 10;  -- each wrapper takes 20 args
                 MaxWrapperOffset = 20000;   -- large offset range
