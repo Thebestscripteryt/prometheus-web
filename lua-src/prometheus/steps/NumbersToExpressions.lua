@@ -3,6 +3,16 @@
 -- NumbersToExpressions.lua
 --
 -- This Script provides an Obfuscation Step, that converts Number Literals to expressions
+--
+-- Originally only produced Add/Sub decompositions (a+b, a-b). The two
+-- multiplication-based decompositions below (a*b+c, a*b-c) are loosely
+-- inspired by the multi-variant number obfuscator used in the Clyde-Luau-
+-- Obfuscator project (MIT License, Copyright (c) 2025 Clyde:
+-- https://github.com/sfr-development/Clyde-Luau-Obfuscator), reimplemented
+-- from scratch against Prometheus's own AST/Step API. Having more than one
+-- structural "shape" of expression makes the output harder to fingerprint,
+-- since a static analyzer can no longer assume every obfuscated number
+-- literal looks like a plain sum or difference.
 unpack = unpack or table.unpack;
 
 local Step = require("prometheus.step");
@@ -49,6 +59,40 @@ function NumbersToExpressions:init(settings)
                 return false;
             end
             return Ast.SubExpression(self:CreateNumberExpression(diff, depth), self:CreateNumberExpression(val2, depth), false);
+        end,
+        function(val, depth) -- Multiplication decomposition: (a * b) + c
+            -- Only safe for integers; non-integer values fall through to the
+            -- other generators.
+            if val ~= math.floor(val) then
+                return false;
+            end
+            local a = math.random(2, 12);
+            local b = math.floor(val / a);
+            local c = val - a * b;
+            if a * b + c ~= val then
+                return false;
+            end
+            return Ast.AddExpression(
+                Ast.MulExpression(self:CreateNumberExpression(a, depth), self:CreateNumberExpression(b, depth), false),
+                self:CreateNumberExpression(c, depth),
+                false
+            );
+        end,
+        function(val, depth) -- Multiplication decomposition: (a * b) - c
+            if val ~= math.floor(val) then
+                return false;
+            end
+            local a = math.random(2, 12);
+            local b = math.ceil(val / a) + math.random(0, 5);
+            local c = a * b - val;
+            if a * b - c ~= val then
+                return false;
+            end
+            return Ast.SubExpression(
+                Ast.MulExpression(self:CreateNumberExpression(a, depth), self:CreateNumberExpression(b, depth), false),
+                self:CreateNumberExpression(c, depth),
+                false
+            );
         end
     }
 end
