@@ -4,6 +4,19 @@
 --
 -- Injects a comprehensive anti‑tamper system (Roblox + generic Lua) without
 -- breaking the compiler. Uses the same do‑block insertion as the original step.
+--
+-- check_line_consistency (below) is loosely inspired by the self-referential
+-- debug.getinfo consistency check used in the bootstrap loader of the
+-- Clyde-Luau-Obfuscator project (MIT License, Copyright (c) 2025 Clyde:
+-- https://github.com/sfr-development/Clyde-Luau-Obfuscator), reimplemented
+-- from scratch here as a plain check_* function against this Step's own
+-- report/hard/soft/pass API. It works because Prometheus always emits this
+-- entire anti-tamper block on a single physical line when PrettyPrint is
+-- disabled (which this Step already requires - see the guard above): two
+-- debug.getinfo(1, "l") reads at different points in that one line report
+-- the same currentline in an untouched build. If the output is later run
+-- through a beautifier/pretty-printer for reverse engineering, or stepped
+-- with a line-level debugger, the two readings diverge.
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -51,6 +64,17 @@ function AntiTamper:apply(ast, pipeline)
                 soft_signals = {},
                 passed = {},
             }
+
+            -- Captured as early as possible so the later consistency check
+            -- (check_line_consistency) has the widest possible window to
+            -- catch a debugger or beautifier acting on the code in between.
+            local __line_ref = nil
+            if use_debug and type(debug) == "table" and type(debug.getinfo) == "function" then
+                local ok_line, info_line = pcall(debug.getinfo, 1, "l")
+                if ok_line and type(info_line) == "table" then
+                    __line_ref = info_line.currentline
+                end
+            end
 
             local function hard(name, value)
                 report.hard_failures[#report.hard_failures + 1] = {
@@ -192,6 +216,37 @@ function AntiTamper:apply(ast, pipeline)
                     })
                 else
                     pass("debug_hook_absent", true)
+                end
+            end
+
+            local function check_line_consistency()
+                if not use_debug then
+                    return
+                end
+
+                if type(__line_ref) ~= "number" or __line_ref <= 0 then
+                    pass("line_consistency_unavailable", true)
+                    return
+                end
+
+                if type(debug) ~= "table" or type(debug.getinfo) ~= "function" then
+                    pass("line_consistency_debug_unavailable", true)
+                    return
+                end
+
+                local ok, info = pcall(debug.getinfo, 1, "l")
+                if not ok or type(info) ~= "table" then
+                    soft("line_consistency_probe_failed", info)
+                    return
+                end
+
+                if info.currentline ~= __line_ref then
+                    hard("line_consistency_mismatch", {
+                        expected = __line_ref,
+                        actual = info.currentline,
+                    })
+                else
+                    pass("line_consistency_valid", true)
                 end
             end
 
@@ -552,6 +607,7 @@ function AntiTamper:apply(ast, pipeline)
             -- Run all checks
             check_forbidden_globals()
             check_debug_hook()
+            check_line_consistency()
             check_coroutine_state()
             check_roblox_services()
             check_instance_properties()
