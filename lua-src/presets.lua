@@ -326,15 +326,3 @@ return {
         }
     }
 }
-- already-compiled VM code instead of the original logic,
-            -- multiplying size and compile time instead of just adding to it.
-            -- (This re-ordering, done for a mistaken performance reason, was
-            -- the actual root cause of the multi-hundred-thousand-percent
-            -- size blowup and near-hangs on real scripts.)
-            {
-                Name = "Vmify";
-                Settings = {};
-            },
-        }
-    }
-}
