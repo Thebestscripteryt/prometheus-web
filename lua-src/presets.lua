@@ -145,6 +145,13 @@ return {
                 };
             },
             {
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.15;
+                    MaxJunkStatements = 3;
+                };
+            },
+            {
                 Name = "ProxifyLocals";
                 Settings = {
                     LiteralType = "string";
@@ -223,6 +230,19 @@ return {
                 Name = "OpaquePredicates";
                 Settings = {
                     Treshold = 1;
+                };
+            },
+
+            -- 3.5. Insert dead (never-executed) branches with fresh runtime-false
+            -- conditions between statements. Kept conservative here (low
+            -- Treshold, small MaxJunkStatements) since this preset already has
+            -- a documented history of size/compile-time blowups from steps
+            -- that multiply per-statement or per-scope.
+            {
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
                 };
             },
 
