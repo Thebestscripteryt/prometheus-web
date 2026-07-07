@@ -10,4 +10,5 @@ return {
 	AddVararg 					 = require("prometheus.steps.AddVararg");
 	WatermarkCheck		   = require("prometheus.steps.WatermarkCheck");
 	OpaquePredicates     = require("prometheus.steps.OpaquePredicates");
+	JunkCodeInsertion    = require("prometheus.steps.JunkCodeInsertion");
 }
