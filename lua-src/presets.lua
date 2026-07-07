@@ -39,6 +39,7 @@ return {
                 Settings = {
                     Treshold    = 1;
                     StringsOnly = true;
+                    Encoding    = "xor";
                 }
             },
             {
@@ -94,6 +95,7 @@ return {
                     Shuffle     = true;
                     Rotate      = true;
                     LocalWrapperTreshold = 0;
+                    Encoding    = "xor";
                 }
             },
             {
@@ -168,6 +170,7 @@ return {
                     Shuffle     = true;
                     Rotate      = true;
                     LocalWrapperTreshold = 0;
+                    Encoding    = "xor";
                 }
             },
             {
@@ -295,7 +298,7 @@ return {
                     LocalWrapperCount = 3;
                     LocalWrapperArgCount = 5;
                     MaxWrapperOffset = 2000;
-                    Encoding = "base64";
+                    Encoding = "xor";
                 };
             },
 
