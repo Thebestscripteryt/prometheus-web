@@ -137,6 +137,12 @@ return {
                 };
             },
             {
+                Name = "OpaquePredicates";
+                Settings = {
+                    Treshold = 1;
+                };
+            },
+            {
                 Name = "ProxifyLocals";
                 Settings = {
                     LiteralType = "string";
@@ -206,7 +212,18 @@ return {
                 };
             },
 
-            -- 3. Split strings into chunks (makes encryption harder).
+            -- 3. Inject always-true arithmetic tautologies into if/while/repeat
+            -- conditions. Runs early so its own generated number literals get
+            -- the same downstream treatment (NumbersToExpressions, ConstantArray
+            -- encoding, etc.) as the rest of the script instead of standing out.
+            {
+                Name = "OpaquePredicates";
+                Settings = {
+                    Treshold = 1;
+                };
+            },
+
+            -- 4. Split strings into chunks (makes encryption harder).
             -- MaxLength raised from 6 -> 16 and CustomLocalFunctionsCount
             -- lowered from 5 -> 3: a MaxLength of 6 turns even short strings
             -- into a huge number of tiny chunks, each needing its own
@@ -225,13 +242,13 @@ return {
                 };
             },
 
-            -- 4. Encrypt all strings (works on the chunks)
+            -- 5. Encrypt all strings (works on the chunks)
             {
                 Name = "EncryptStrings";
                 Settings = {};
             },
 
-            -- 5. Turn every number into an expression (must come before ConstantArray).
+            -- 6. Turn every number into an expression (must come before ConstantArray).
             -- InternalTreshold raised from 0.1 -> 0.3: 0.1 meant almost every
             -- number expression recursively nested into further sub-expressions,
             -- compounding size for very little extra protection.
@@ -243,7 +260,7 @@ return {
                 };
             },
 
-            -- 6. Proxify all locals (hide variable names behind metatables)
+            -- 7. Proxify all locals (hide variable names behind metatables)
             {
                 Name = "ProxifyLocals";
                 Settings = {
@@ -251,7 +268,7 @@ return {
                 };
             },
 
-            -- 7. Anti-tamper
+            -- 8. Anti-tamper
             {
                 Name = "AntiTamper";
                 Settings = {
@@ -260,7 +277,7 @@ return {
                 };
             },
 
-            -- 8. Extract all constants into an array (strings, numbers, booleans, nil).
+            -- 9. Extract all constants into an array (strings, numbers, booleans, nil).
             -- LocalWrapperCount 10 -> 3, LocalWrapperArgCount 10 -> 5,
             -- MaxWrapperOffset 20000 -> 2000: these wrapper functions are
             -- generated PER SCOPE, so high counts multiply directly into
@@ -282,7 +299,7 @@ return {
                 };
             },
 
-            -- 9. Wrap everything in a function.
+            -- 10. Wrap everything in a function.
             -- Iterations 3 -> 1: each extra iteration re-wraps the ENTIRE
             -- current output (already large from the steps above), so this
             -- setting alone was roughly tripling final size and compile time.
@@ -293,11 +310,23 @@ return {
                 };
             },
 
-            -- 10. Vmify must run LAST: it compiles the current AST into a
+            -- 11. Vmify must run LAST: it compiles the current AST into a
             -- custom bytecode VM. Every step above shapes the source logic
             -- first; if ConstantArray/WrapInFunction ran after Vmify (as they
             -- did in a previous version of this file), they'd operate on the
             -- already-compiled VM code instead of the original logic,
+            -- multiplying size and compile time instead of just adding to it.
+            -- (This re-ordering, done for a mistaken performance reason, was
+            -- the actual root cause of the multi-hundred-thousand-percent
+            -- size blowup and near-hangs on real scripts.)
+            {
+                Name = "Vmify";
+                Settings = {};
+            },
+        }
+    }
+}
+- already-compiled VM code instead of the original logic,
             -- multiplying size and compile time instead of just adding to it.
             -- (This re-ordering, done for a mistaken performance reason, was
             -- the actual root cause of the multi-hundred-thousand-percent
