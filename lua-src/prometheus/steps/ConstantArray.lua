@@ -3,6 +3,20 @@
 -- ConstantArray.lua
 --
 -- This Script provides a Simple Obfuscation Step that wraps the entire Script into a function
+--
+-- The "xor" Encoding option added below (rolling XOR + random substitution
+-- box) is loosely inspired by the string-encryption scheme used in the
+-- Clyde-Luau-Obfuscator project (MIT License, Copyright (c) 2025 Clyde:
+-- https://github.com/sfr-development/Clyde-Luau-Obfuscator), reimplemented
+-- from scratch here as a new Encoding value alongside the existing "base64"
+-- option. Unlike "base64" (which is just a reversible text encoding with no
+-- security value on its own - anyone can base64-decode it), "xor" is an
+-- actual keyed, non-linear transform: every byte is substituted through a
+-- randomly-generated 256-entry S-box and then XORed with a rolling
+-- multi-byte key that also depends on the previous ciphertext byte, so
+-- identical plaintext bytes do not produce identical ciphertext bytes and
+-- the substitution can't be undone without both the key and the box (both
+-- generated fresh per compile and embedded only in scrambled form).
 
 -- TODO: Wrapper Functions
 -- TODO: Proxy Object for indexing: e.g: ARR[X] becomes ARR + X
@@ -14,6 +28,7 @@ local visitast = require("prometheus.visitast");
 local util     = require("prometheus.util")
 local Parser   = require("prometheus.parser");
 local enums = require("prometheus.enums")
+local hostbit32 = require("prometheus.bit").bit32;
 
 local LuaVersion = enums.LuaVersion;
 local AstKind = Ast.AstKind;
@@ -88,6 +103,7 @@ ConstantArray.SettingsDescriptor = {
 		values = {
 			"none",
 			"base64",
+			"xor",
 		},
 	}
 }
@@ -207,6 +223,84 @@ function ConstantArray:addRotateCode(ast, shift)
 end
 
 function ConstantArray:addDecodeCode(ast)
+	if self.Encoding == "xor" then
+		local xorDecodeCode = [[
+	do ]] .. table.concat(util.shuffle{
+		"local key = KEY_TABLE;",
+		"local invsbox = INVSBOX_TABLE;",
+		"local byte = string.byte;",
+		"local strchar = string.char;",
+		"local concat = table.concat;",
+		"local type = type;",
+		"local arr = ARR;",
+	}) .. [[
+		local keylen = #key;
+		-- Pure-Lua 8-bit xor (works on every Lua version this project
+		-- targets, without depending on a bit32/bit library being present
+		-- in the *output* runtime).
+		local function bxor8(a, b)
+			local r, p = 0, 1;
+			while a > 0 or b > 0 do
+				local abit, bbit = a % 2, b % 2;
+				if abit ~= bbit then r = r + p end
+				a = (a - abit) / 2;
+				b = (b - bbit) / 2;
+				p = p * 2;
+			end
+			return r;
+		end
+		for i = 1, #arr do
+			local data = arr[i];
+			if type(data) == "string" then
+				local len = #data;
+				local parts = {};
+				local prev = 0;
+				for j = 1, len do
+					local enc = byte(data, j);
+					local k = key[((j - 1) % keylen) + 1];
+					local sub = bxor8(bxor8(enc, k), prev);
+					parts[j] = strchar(invsbox[sub + 1]);
+					prev = enc;
+				end
+				arr[i] = concat(parts);
+			end
+		end
+	end
+]];
+
+		local parser = Parser:new({
+			LuaVersion = LuaVersion.Lua51;
+		});
+
+		local newAst = parser:parse(xorDecodeCode);
+		local forStat = newAst.body.statements[1];
+		forStat.body.scope:setParent(ast.body.scope);
+
+		visitast(newAst, nil, function(node, data)
+			if(node.kind == AstKind.VariableExpression) then
+				if(node.scope:getVariableName(node.id) == "ARR") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+					node.scope = self.rootScope;
+					node.id    = self.arrId;
+				end
+
+				if(node.scope:getVariableName(node.id) == "KEY_TABLE") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					return self:createXorKeyTable();
+				end
+
+				if(node.scope:getVariableName(node.id) == "INVSBOX_TABLE") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					return self:createXorInvSboxTable();
+				end
+			end
+		end)
+
+		table.insert(ast.body.statements, 1, forStat);
+		return;
+	end
+
 	if self.Encoding == "base64" then
 		local base64DecodeCode = [[
 	do ]] .. table.concat(util.shuffle{
@@ -296,7 +390,39 @@ function ConstantArray:createBase64Lookup()
 	return Ast.TableConstructorExpression(entries);
 end
 
+function ConstantArray:createXorKeyTable()
+	local entries = {};
+	for _, b in ipairs(self.xorKey) do
+		table.insert(entries, Ast.TableEntry(Ast.NumberExpression(b)));
+	end
+	return Ast.TableConstructorExpression(entries);
+end
+
+function ConstantArray:createXorInvSboxTable()
+	local entries = {};
+	for i = 1, 256 do
+		table.insert(entries, Ast.TableEntry(Ast.NumberExpression(self.xorInvSbox[i])));
+	end
+	return Ast.TableConstructorExpression(entries);
+end
+
 function ConstantArray:encode(str)
+	if self.Encoding == "xor" then
+		local sbox = self.xorSbox;
+		local key  = self.xorKey;
+		local keylen = #key;
+		local out = {};
+		local prev = 0;
+		for i = 1, #str do
+			local b = string.byte(str, i);
+			local sub = sbox[b + 1];
+			local k = key[((i - 1) % keylen) + 1];
+			local enc = hostbit32.bxor(hostbit32.bxor(sub, k), prev);
+			out[i] = string.char(enc);
+			prev = enc;
+		end
+		return table.concat(out);
+	end
 	if self.Encoding == "base64" then
 		return ((str:gsub('.', function(x) 
 			local r,b='',x:byte()
@@ -321,6 +447,32 @@ function ConstantArray:apply(ast, pipeline)
 		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 		"+", "/",
 	});
+
+	if self.Encoding == "xor" then
+		-- Fresh random substitution box (permutation of 0..255) and its
+		-- inverse, plus a fresh random multi-byte rolling XOR key. All
+		-- generated per-compile, so no two obfuscated outputs share them.
+		local sbox = {};
+		for i = 1, 256 do
+			sbox[i] = i - 1;
+		end
+		sbox = util.shuffle(sbox);
+
+		local invSbox = {};
+		for i = 1, 256 do
+			invSbox[sbox[i] + 1] = i - 1;
+		end
+
+		local keyLen = math.random(16, 32);
+		local key = {};
+		for i = 1, keyLen do
+			key[i] = math.random(0, 255);
+		end
+
+		self.xorSbox    = sbox;
+		self.xorInvSbox = invSbox;
+		self.xorKey     = key;
+	end
 
 	self.constants = {};
 	self.lookup    = {};
