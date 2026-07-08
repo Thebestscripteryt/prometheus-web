@@ -1744,7 +1744,7 @@ function AntiTamper:apply(ast, pipeline)
             --    but if it is not logged, the script will hang (which is a form of detection).
             --    We'll do a non‑blocking version: we start listening and set a timeout.
             do
-                local randomMsg = `[{math.random()}]`
+                local randomMsg = "[" .. tostring(math.random()) .. "]"
                 local logged = false
                 local conn = game:GetService("LogService").MessageOut:Connect(function(msg, msgType)
                     if msg == randomMsg and msgType == Enum.MessageType.MessageOutput then
