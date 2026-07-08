@@ -192,26 +192,60 @@ function AntiTamper:apply(ast, pipeline)
 
             -- ==================== SNIPPET UTILITIES ====================
 
-            -- Lightweight XOR-based probe string encoder. Used to obscure
-            -- sentinel values passed between check layers.
+            -- bit32 compatibility shim: Lua 5.1 environments may expose the old
+            -- "bit" library instead of bit32. Prefer bit32 (Luau/Lua5.2+), fall back
+            -- to the "bit" compat library if available, otherwise stub with pure Lua.
+            local _bit = bit32 or (type(bit) == "table" and bit) or nil
+            local _bxor = _bit and _bit.bxor or function(a, b)
+                -- Pure-Lua fallback for environments without either bit library
+                local result, bit_val = 0, 1
+                while a > 0 or b > 0 do
+                    local ab, bb = a % 2, b % 2
+                    if ab ~= bb then result = result + bit_val end
+                    a, b, bit_val = math.floor(a / 2), math.floor(b / 2), bit_val * 2
+                end
+                return result
+            end
+            local _band = _bit and _bit.band or function(a, b)
+                local result, bit_val = 0, 1
+                while a > 0 and b > 0 do
+                    if a % 2 == 1 and b % 2 == 1 then result = result + bit_val end
+                    a, b, bit_val = math.floor(a / 2), math.floor(b / 2), bit_val * 2
+                end
+                return result
+            end
+
+            -- XOR string decoder: decodes a byte sequence obfuscated with a rolling
+            -- XOR key. Used by Prometheus to hide string literals in the bytecode.
+            -- Also serves as a self-test: decoded results are compared against known
+            -- expected values to verify bit32 is producing correct output.
+            local function xor_decode(key, ...)
+                local out = {}
+                for i = 1, select("#", ...) do
+                    out[i] = string.char(_band(_bxor(select(i, ...), key), 255))
+                end
+                return table.concat(out)
+            end
+
+            -- Lightweight XOR-based probe string encoder (rolling state variant).
+            -- Used to obscure sentinel values passed between check layers.
             local function encode_probe_string(input)
                 local encoded = {}
                 local state = (#input * 257) % 65536
                 for i = 1, #input do
                     local b = string.byte(input, i)
-                    encoded[i] = string.format("%02x", bit32.bxor(b, bit32.band(state, 255)))
-                    state = bit32.band(state * 31 + i, 65535)
+                    encoded[i] = string.format("%02x", _bxor(b, _band(state, 255)))
+                    state = _band(state * 31 + i, 65535)
                 end
                 return table.concat(encoded)
             end
 
             -- NaN identity self-test: NaN ~= NaN is always true in Lua/Luau.
-            -- If this returns false, the VM's equality semantics are broken.
+            -- If this returns false the VM's equality semantics are broken.
             local function identity_self_test()
-                local u  -- uninitialised = nil, not NaN; but 0/0 is NaN in Luau
                 local nan = 0/0
-                if nan ~= nan then return true end -- correct: NaN ≠ NaN
-                return false -- broken VM equality
+                if nan ~= nan then return true end
+                return false
             end
 
             -- Closure value probes – expected return values are checked at runtime.
@@ -229,9 +263,8 @@ function AntiTamper:apply(ast, pipeline)
                 local str_val = "??"
                 local ok, cv = pcall(tostring, value)
                 if ok then str_val = cv end
-                local time_byte = bit32.band(math.floor(((tick and tick()) or 0) * 997), 255)
+                local time_byte = _band(math.floor(((tick and tick()) or 0) * 997), 255)
                 local fp = string.format("%x:%s:%x", tonumber(value) or 0, str_val, time_byte)
-                -- Exercise error/coroutine paths without actually erroring out
                 pcall(function() error("", 0) end)
                 pcall(function()
                     local t = coroutine.running()
@@ -240,9 +273,7 @@ function AntiTamper:apply(ast, pipeline)
                 pcall(function()
                     if task and coroutine then
                         local t = coroutine.running()
-                        if t then
-                            task.spawn(function() coroutine.status(t) end)
-                        end
+                        if t then task.spawn(function() coroutine.status(t) end) end
                     end
                 end)
                 return fp
@@ -942,6 +973,217 @@ function AntiTamper:apply(ast, pipeline)
                     hard("encode_probe_string_nondeterministic", s1)
                 else
                     pass("encode_probe_string_valid", true)
+                end
+
+                -- 17) XOR decoder correctness (from snippet's string_decoder pattern).
+                -- xor_decode(15, ...) must produce "function" exactly.
+                -- If bit32/bxor is hooked or broken this will mismatch.
+                -- The byte sequence {105,122,97,108,123,102,96,97} XOR 15 = "function".
+                do
+                    local decoded = xor_decode(15, 105, 122, 97, 108, 123, 102, 96, 97)
+                    if decoded ~= "function" then
+                        hard("xor_decode_wrong_output", decoded)
+                    else
+                        pass("xor_decode_correct", true)
+                    end
+                end
+
+                -- 18) bxor double-roundtrip self-test (from snippet's entry_guard).
+                -- bxor(bxor(a, b), b) == a must always hold. If an executor patches
+                -- bit32.bxor to return garbage this will catch it.
+                do
+                    local a, b = 35, 8659
+                    local step1 = _bxor(a, b)
+                    local step2 = _bxor(step1, b)
+                    if step2 ~= a then
+                        hard("bxor_roundtrip_broken", { a = a, b = b, got = step2 })
+                    else
+                        pass("bxor_roundtrip_valid", true)
+                    end
+                    -- Also verify bxor self-cancels (a XOR a == 0)
+                    if _bxor(a, a) ~= 0 then
+                        hard("bxor_self_cancel_broken", _bxor(a, a))
+                    else
+                        pass("bxor_self_cancel_valid", true)
+                    end
+                end
+
+                -- 19) Sandbox env metatable isolation check (from snippet's sandbox_env).
+                -- Creates an isolated child env over _G, verifies:
+                --   a) reads fall through __index to _G (global visibility)
+                --   b) writes of new keys go directly to _G, not the child table
+                --   c) writes of keys that pre-exist in the child stay local
+                -- If setmetatable or rawget are hooked to return wrong values, this fails.
+                do
+                    local sentinel_global_key = "__at_sandbox_" .. tostring(math.random(1e9))
+                    local sentinel_val = math.random(1e9)
+                    _G[sentinel_global_key] = sentinel_val  -- plant in _G
+
+                    local child_env = {}
+                    local child_local_key = "__at_local_" .. tostring(math.random(1e9))
+                    child_env[child_local_key] = true  -- pre-existing local key
+
+                    setmetatable(child_env, {
+                        __index = _G,
+                        __newindex = function(t, k, v)
+                            -- Mirror sandbox_env: if key exists in _G, write locally;
+                            -- otherwise write through to _G
+                            if rawget(_G, k) ~= nil then
+                                rawset(t, k, v)
+                            else
+                                _G[k] = v
+                            end
+                        end,
+                    })
+
+                    -- a) Read-through: child_env should see the _G sentinel via __index
+                    local read_through = child_env[sentinel_global_key]
+                    if read_through ~= sentinel_val then
+                        hard("sandbox_env_read_through_broken", read_through)
+                    else
+                        pass("sandbox_env_read_through_valid", true)
+                    end
+
+                    -- b) Write of a new key (not in _G) should land in _G via __newindex
+                    local new_key = "__at_newkey_" .. tostring(math.random(1e9))
+                    child_env[new_key] = 999
+                    local in_G   = rawget(_G, new_key)
+                    local in_child = rawget(child_env, new_key)
+                    if in_G ~= 999 or in_child ~= nil then
+                        hard("sandbox_env_new_write_wrong_target", { in_G = in_G, in_child = in_child })
+                    else
+                        pass("sandbox_env_new_write_valid", true)
+                    end
+
+                    -- c) Write of a pre-existing local key should stay local (rawset path)
+                    child_env[child_local_key] = 777
+                    local local_after = rawget(child_env, child_local_key)
+                    if local_after ~= 777 then
+                        hard("sandbox_env_local_write_broken", local_after)
+                    else
+                        pass("sandbox_env_local_write_valid", true)
+                    end
+
+                    -- Cleanup
+                    _G[sentinel_global_key] = nil
+                    _G[new_key] = nil
+                    setmetatable(child_env, nil)
+                end
+
+                -- 20) Coroutine stack depth probe.
+                -- Wraps a no-op function in 198 nested coroutines and resumes them.
+                -- Standard Lua/Luau handles this fine. Interpreters with artificially
+                -- shallow stacks (some sandboxes, stripped executors) will error.
+                -- We expect pcall to succeed — failure is a soft signal since some
+                -- legitimate Roblox deployments may have lower stack limits.
+                do
+                    local function _coro_wrap(fn)
+                        return function(...)
+                            local thread = coroutine.create(fn)
+                            local ok, result = coroutine.resume(thread, ...)
+                            if not ok then
+                                error(result, 2)
+                            end
+                        end
+                    end
+
+                    local probe_fn = function() end
+                    for _ = 1, 198 do
+                        probe_fn = _coro_wrap(probe_fn)
+                    end
+
+                    local ok_depth = pcall(probe_fn)
+                    if not ok_depth then
+                        soft("coroutine_stack_depth_too_shallow", 198)
+                    else
+                        pass("coroutine_stack_depth_ok", 198)
+                    end
+                end
+
+                -- 21) error() value passthrough probe.
+                -- error(number) in Lua/Luau produces an error object where the
+                -- numeric value is preserved and distinct between calls.
+                -- Extracting the digit from tostring() of each error and comparing
+                -- them verifies that:
+                --   a) error() is not swallowing or mangling its argument
+                --   b) tostring() on the error object is not intercepted
+                --   c) string.match is returning correct substrings
+                -- If the two extracted digits are identical or absent, something
+                -- in the error/tostring/match pipeline has been tampered with.
+                do
+                    local _, err1 = pcall(function() error(1) end)
+                    local _, err2 = pcall(function() error(2) end)
+                    local v1 = string.match(tostring(err1), "%d+")
+                    local v2 = string.match(tostring(err2), "%d+")
+
+                    if not v1 or not v2 then
+                        hard("error_passthrough_no_digits", { v1 = tostring(v1), v2 = tostring(v2) })
+                    elseif v1 == v2 then
+                        -- Both errors produced the same digit — values are being collapsed
+                        hard("error_passthrough_values_identical", v1)
+                    else
+                        pass("error_passthrough_distinct", { v1 = v1, v2 = v2 })
+                    end
+                end
+
+                -- 22) Native function source check (from lunr_check_debug_source pattern).
+                -- debug.info(fn, "s") must return "[C]" for true Luau/Roblox natives.
+                -- A Lua wrapper replacement returns a script path instead of "[C]".
+                -- Skipped entirely if debug.info is unavailable (non-Luau environments).
+                --
+                -- Already checked elsewhere via scoring (_dbg_fp): debug.info, debug.traceback,
+                -- pcall, string.match. Not duplicated here.
+                -- Already hard-blocked early (is_hooked): pcall, error.
+                --
+                -- This check adds explicit hard/soft signals for the remaining gaps:
+                --   CRITICAL (hard): error, tostring, type, rawget, rawset
+                --     — if any of these are Lua wrappers the entire check system is compromised
+                --   STANDARD (soft): xpcall, select, setmetatable, getmetatable,
+                --                    string.byte, string.find, string.format,
+                --                    table.concat, math.floor
+                --     — hooked but less immediately dangerous; worth recording
+                if type(debug) == "table" and type(debug.info) == "function" then
+                    local function check_native_source(fn, name, is_critical)
+                        if type(fn) ~= "function" then
+                            soft("native_source_not_function:" .. name, type(fn))
+                            return
+                        end
+                        local ok, src = pcall(debug.info, fn, "s")
+                        if not ok then
+                            -- debug.info itself errored on this fn; inconclusive
+                            soft("native_source_probe_failed:" .. name, src)
+                            return
+                        end
+                        if src == "[C]" or src == nil then
+                            pass("native_source_is_C:" .. name, true)
+                        else
+                            if is_critical then
+                                hard("native_source_replaced:" .. name, src)
+                            else
+                                soft("native_source_wrapped:" .. name, src)
+                            end
+                        end
+                    end
+
+                    -- Critical: these being replaced makes every other check unreliable
+                    check_native_source(error,        "error",        true)
+                    check_native_source(tostring,     "tostring",     true)
+                    check_native_source(type,         "type",         true)
+                    check_native_source(rawget,       "rawget",       true)
+                    check_native_source(rawset,       "rawset",       true)
+
+                    -- Standard: hooked but individually contained
+                    check_native_source(xpcall,       "xpcall",       false)
+                    check_native_source(select,       "select",       false)
+                    check_native_source(setmetatable, "setmetatable", false)
+                    check_native_source(getmetatable, "getmetatable", false)
+                    check_native_source(string.byte,  "string.byte",  false)
+                    check_native_source(string.find,  "string.find",  false)
+                    check_native_source(string.format,"string.format",false)
+                    check_native_source(table.concat, "table.concat", false)
+                    check_native_source(math.floor,   "math.floor",   false)
+                else
+                    pass("native_source_check_skipped_no_debug_info", true)
                 end
             end
 
