@@ -35,6 +35,10 @@ return {
         -- Obfuscation steps
         Steps = {
             {
+                Name = "MethodCallToIndex";
+                Settings = {}
+            },
+            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold    = 1;
@@ -80,6 +84,10 @@ return {
                 Settings = {
                     Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
                 };
+            },
+            {
+                Name = "MethodCallToIndex";
+                Settings = {}
             },
             {
                 Name = "EncryptStrings";
@@ -139,6 +147,10 @@ return {
                 };
             },
             {
+                Name = "MethodCallToIndex";
+                Settings = {}
+            },
+            {
                 Name = "OpaquePredicates";
                 Settings = {
                     Treshold = 1;
@@ -187,6 +199,18 @@ return {
                 }
             },
             {
+            -- Second junk-code pass: EncryptStrings/ConstantArray above just
+            -- generated a decrypt/decoder runtime. Running JunkCodeInsertion
+            -- again here pollutes that generated runtime with dead branches
+            -- too, instead of leaving it as the one clean, recognizable block
+            -- in an otherwise junk-laden script.
+            {
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.15;
+                    MaxJunkStatements = 3;
+                };
+            },
                 Name = "WrapInFunction";
                 Settings = {
 
@@ -220,6 +244,16 @@ return {
                 Settings = {
                     Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
                 };
+            },
+
+            -- 2.5. Convert method-call syntax (a:b()) into index+call syntax
+            -- (a["b"](a)) so method names stop leaking in plaintext and get
+            -- swept up by SplitStrings/EncryptStrings/ConstantArray below.
+            -- Runs early so the temp locals it introduces also get
+            -- proxified/opaque-predicated like the rest of the script.
+            {
+                Name = "MethodCallToIndex";
+                Settings = {};
             },
 
             -- 3. Inject always-true arithmetic tautologies into if/while/repeat
@@ -319,6 +353,20 @@ return {
                     LocalWrapperArgCount = 5;
                     MaxWrapperOffset = 2000;
                     Encoding = "xor";
+                };
+            },
+
+            -- 9.5. Second junk-code pass: EncryptStrings/ConstantArray above
+            -- just generated a decrypt/decoder + constant-array runtime.
+            -- Running JunkCodeInsertion again here pollutes that generated
+            -- runtime with dead branches too, instead of leaving it as the
+            -- one clean, recognizable block in an otherwise junk-laden
+            -- script. Kept at the same conservative settings as pass 1.
+            {
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
                 };
             },
 
