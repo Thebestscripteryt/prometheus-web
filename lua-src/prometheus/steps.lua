@@ -11,4 +11,5 @@ return {
 	WatermarkCheck		   = require("prometheus.steps.WatermarkCheck");
 	OpaquePredicates     = require("prometheus.steps.OpaquePredicates");
 	JunkCodeInsertion    = require("prometheus.steps.JunkCodeInsertion");
+	MethodCallToIndex    = require("prometheus.steps.MethodCallToIndex");
 }
