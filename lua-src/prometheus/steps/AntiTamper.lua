@@ -2695,10 +2695,29 @@ function AntiTamper:apply(ast, pipeline)
             if is_hooked(pcall) or is_hooked(error) then
                 error("Tamper: core functions hooked", 0)
             end
+            local _at_debug_log = {}
+            local _at_orig_print = print
+            print = function(...)
+                local msg = table.concat({...}, "\t")
+                _at_orig_print(msg)
+                if msg:sub(1, 10) == "[AT-DEBUG]" then
+                    _at_debug_log[#_at_debug_log + 1] = msg
+                end
+            end
             local function secure_call()
                 local ok, err = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
                     print("[AT-DEBUG] secure_call FAILED err=" .. tostring(err))
+                    local report = table.concat(_at_debug_log, "\n")
+                    if type(setclipboard) == "function" then
+                        pcall(setclipboard, report)
+                        _at_orig_print("[AT-DEBUG] Results copied to clipboard")
+                    else
+                        _at_orig_print("[AT-DEBUG] --- FULL LOG (copy manually) ---")
+                        _at_orig_print(report)
+                        _at_orig_print("[AT-DEBUG] --- END LOG ---")
+                    end
+                    print = _at_orig_print
                     error("Tamper detected", 0)
                 end
                 print("[AT-DEBUG] secure_call PASSED")
