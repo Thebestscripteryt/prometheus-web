@@ -38,6 +38,7 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
             if not game or not game.GetService then
+                print("[AT-DEBUG] FAIL: Invalid environment")
                 return error("Tamper: Invalid environment", 0)
             end
             local _pcall = pcall
@@ -47,8 +48,10 @@ function AntiTamper:apply(ast, pipeline)
             local _debug = debug
             local _string_dump = string.dump
             if rawget(_G, "hookfunction") ~= nil or rawget(_G, "replaceclosure") ~= nil then
+                print("[AT-DEBUG] FAIL: hookfunction/replaceclosure present")
                 return _error("Tamper: hookfunction/replaceclosure present", 0)
             end
+            print("[AT-DEBUG] PASS: hookfunction absent")
             local function integrity_check(fn)
                 if type(_string_dump) ~= "function" then
                     return true
@@ -61,38 +64,50 @@ function AntiTamper:apply(ast, pipeline)
             end
             local ic_result = integrity_check(anti_tamper)
             if not ic_result then
+                print("[AT-DEBUG] FAIL: function modified (integrity_check)")
                 return _error("Tamper: function modified", 0)
             end
+            print("[AT-DEBUG] PASS: integrity_check")
             if use_debug and _debug then
                 if type(_debug.gethook) == "function" then
                     local ok_hook, hook = _pcall(_debug.gethook)
                     if ok_hook and hook ~= nil then
+                        print("[AT-DEBUG] FAIL: debug hook detected, hook=" .. tostring(hook))
                         return _error("Tamper: debug hook detected", 0)
                     end
                 end
             end
+            print("[AT-DEBUG] PASS: debug hook")
             do
                 local ok_clock, t1 = pcall(os.clock)
                 if ok_clock then
                     for i = 1, 1e4 do end
                     local _, t2 = pcall(os.clock)
-                    if t2 and (t2 - t1) > 2 then
+                    local elapsed = t2 and (t2 - t1) or 0
+                    print("[AT-DEBUG] timing elapsed=" .. tostring(elapsed) .. "s (limit=2s)")
+                    if t2 and elapsed > 2 then
+                        print("[AT-DEBUG] FAIL: execution slowed elapsed=" .. tostring(elapsed))
                         return _error("Tamper: execution slowed", 0)
                     end
                 end
             end
+            print("[AT-DEBUG] PASS: timing")
             if _VERSION ~= "Luau" then
                 local mt = getmetatable(_G)
                 if mt and (mt.__index or mt.__newindex) then
+                    print("[AT-DEBUG] FAIL: global metatable hooked mt=" .. tostring(mt))
                     return _error("Tamper: global metatable hooked", 0)
                 end
             end
+            print("[AT-DEBUG] PASS: global metatable")
             if _string_dump and _VERSION ~= "Luau" then
                 local ok = _pcall(_string_dump, function() end)
                 if not ok then
+                    print("[AT-DEBUG] FAIL: dump blocked")
                     return _error("Tamper: dump blocked (hooked)", 0)
                 end
             end
+            print("[AT-DEBUG] PASS: string.dump")
             local report = {
                 hard_failures = {},
                 soft_signals = {},
@@ -2635,6 +2650,13 @@ function AntiTamper:apply(ast, pipeline)
             report.soft_signal_count = #report.soft_signals
             report.passed_count = #report.passed
             report.blocked = report.hard_failure_count > 0 or report.soft_signal_count >= 3
+            print("[AT-DEBUG] hard=" .. report.hard_failure_count .. " soft=" .. report.soft_signal_count .. " passed=" .. report.passed_count .. " blocked=" .. tostring(report.blocked))
+            for _, f in ipairs(report.hard_failures) do
+                print("[AT-DEBUG] HARD: " .. tostring(f.check) .. " val=" .. tostring(f.value))
+            end
+            for _, s in ipairs(report.soft_signals) do
+                print("[AT-DEBUG] SOFT: " .. tostring(s.check) .. " val=" .. tostring(s.value))
+            end
             if diagnostic_mode then
                 return report
             end
@@ -2669,10 +2691,12 @@ function AntiTamper:apply(ast, pipeline)
                 error("Tamper: core functions hooked", 0)
             end
             local function secure_call()
-                local ok = pcall(anti_tamper, diagnostic_mode, use_debug)
+                local ok, err = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
+                    print("[AT-DEBUG] secure_call FAILED err=" .. tostring(err))
                     error("Tamper detected", 0)
                 end
+                print("[AT-DEBUG] secure_call PASSED")
             end
             secure_call()
             task.spawn(function()
