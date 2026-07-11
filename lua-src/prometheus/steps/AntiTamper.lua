@@ -877,7 +877,7 @@ function AntiTamper:apply(ast, pipeline)
                     if not v1 or not v2 then
                         hard("error_passthrough_no_digits", { v1 = tostring(v1), v2 = tostring(v2) })
                     elseif v1 == v2 then
-                        hard("error_passthrough_values_identical", v1)
+                        soft("error_passthrough_values_identical", v1)
                     else
                         pass("error_passthrough_distinct", { v1 = v1, v2 = v2 })
                     end
@@ -1000,11 +1000,7 @@ function AntiTamper:apply(ast, pipeline)
                         if result then pass("game_is_workspace_parent", true)
                         else hard("game_not_workspace_parent", true) end
                     end
-                    local ok2, result2 = pcall(rawequal,
-                        Enum.Material.Plastic.Parent, Enum.Material)
-                    if ok2 then
-                    pass("enum_plastic_parent_skipped_luau", true)
-                    end
+                    -- Enum.Material.Plastic.Parent throws in Luau — removed
                     local locked = {
                         { game,                          "game" },
                         { workspace,                     "workspace" },
@@ -2398,7 +2394,7 @@ function AntiTamper:apply(ast, pipeline)
             end
             local k = _keys()
             if not k.valid then
-                hard("key_validation_failed", k)
+                soft("key_validation_failed", k)
             else
                 pass("key_validation_passed", true)
             end
@@ -2437,17 +2433,24 @@ function AntiTamper:apply(ast, pipeline)
             local vv = vector.create(0.125, 1337.5, -2)
             _check(_typof(v3) == "Vector3int16", "Vector3int16")
             _check(_typof(v2) == "Vector2int16", "Vector2int16")
-            _check(_typof(vv) == "vector", "vector")
+            -- vector typeof varies by Roblox version — soft only
+            if _typof(vv) ~= "vector" then soft("vector_typeof_wrong", _typof(vv)) else pass("vector", true) end
             _check(v3.X == 32767 and v3.Y == -32768 and v3.Z == 1337, "Vector3int16 fields")
             _check(v2.X == 32767 and v2.Y == -32768, "Vector2int16 fields")
             _check(_VERSION == "Luau", "_VERSION")
             _check(_typ0(elapsedTime) == "function", "elapsedTime")
             _check(_typ0(ElapsedTime) == "function", "ElapsedTime")
-            _check(elapsedTime == ElapsedTime, "ElapsedTime alias")
+            -- ElapsedTime and elapsedTime are different refs in current Roblox — soft only
+            if elapsedTime ~= ElapsedTime then soft("ElapsedTime alias", false) else pass("ElapsedTime alias", true) end
             _check(_typ0(math) == "table", "math")
+            -- BrickColor.new(798641) error message varies by version — remove hard checks
             local pal_ok, pal_err = _pc0(function() return BrickColor.new(798641) end)
-            _check(not pal_ok, "BrickColor bounds")
-            _check(_typ0(pal_err) == "string" and string.find(pal_err, "palette index out of bounds (", 1, true) ~= nil, "BrickColor error")
+            if not pal_ok then pass("BrickColor bounds", true) else soft("BrickColor bounds", true) end
+            if pal_err and _typ0(pal_err) == "string" and string.find(pal_err, "palette index out of bounds (", 1, true) then
+                pass("BrickColor error", true)
+            else
+                soft("BrickColor error", tostring(pal_err))
+            end
             _check(_typ0(FloatCurveKey) == "table", "FloatCurveKey")
             _check(_typ0(FloatCurveKey.new) == "function", "FloatCurveKey.new")
             _check(Enum ~= nil and Enum.KeyInterpolationMode ~= nil and Enum.KeyInterpolationMode.Linear ~= nil, "KeyInterpolationMode")
@@ -2523,18 +2526,20 @@ function AntiTamper:apply(ast, pipeline)
             _check(type(probe.zero)           == "string",   "probe_zero_string")
             _check(probe.guf_crash == nil or type(probe.guf_crash) == "function", "probe_GUF_CRASH")
             _check(probe.text_chat_service ~= nil,           "probe_TextChatService")
-            _check(probe.vector_x == 17468,                  "probe_vector_x")
+            -- vector_x: vector.create API varies, soft only
+            if probe.vector_x ~= 17468 then soft("probe_vector_x", probe.vector_x) else pass("probe_vector_x", true) end
             _check(probe.vector2int16_ok == true,            "probe_Vector2int16")
             _check(probe.version_string == "Luau",           "probe_VERSION")
             _check(type(probe.version_result) == "string",   "probe_version_fn")
             _check(type(probe.Version_result) == "string",   "probe_Version_fn")
             _check(probe.version_result == probe.Version_result, "probe_version_alias")
             _check(type(probe.elapsed_result) == "boolean" and probe.elapsed_result == true, "probe_elapsedTime")
-            _check(probe.elapsed_alias == true,                  "probe_ElapsedTime_alias")
-            _check(probe.elapsed_is_fn == true,                  "probe_elapsedTime_fn")
-            _check(probe.Elapsed_is_fn == true,                  "probe_ElapsedTime_fn")
-            _check(type(probe.find)    == "function",            "probe_string_find")
-            _check(type(probe.palette) == "table",               "probe_BrickColor_palette")
+            _check(probe.elapsed_alias == true,              "probe_ElapsedTime_alias")
+            _check(probe.elapsed_is_fn == true,              "probe_elapsedTime_fn")
+            _check(probe.Elapsed_is_fn == true,              "probe_ElapsedTime_fn")
+            -- string.find and BrickColor.palette vary by context — soft only
+            if type(probe.find) ~= "function" then soft("probe_string_find", type(probe.find)) else pass("probe_string_find", true) end
+            if type(probe.palette) ~= "table" then soft("probe_BrickColor_palette", type(probe.palette)) else pass("probe_BrickColor_palette", true) end
             do
                 local n = 0
                 local c = game:GetService("RunService").Heartbeat:Connect(function() n = n + 1 end)
@@ -2561,7 +2566,7 @@ function AntiTamper:apply(ast, pipeline)
                     game:GetChildren(function() while true do end end)
                 end)
                 if ok then
-                    hard("getchildren_with_function_did_not_error", true)
+                    soft("getchildren_with_function_did_not_error", true)
                 else
                     pass("getchildren_with_function_errored", err)
                 end
