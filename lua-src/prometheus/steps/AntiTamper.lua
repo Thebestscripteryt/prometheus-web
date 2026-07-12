@@ -31,6 +31,13 @@ function AntiTamper:apply(ast, pipeline)
     local antiTamperFunc = [=[
         local function anti_tamper(diagnostic_mode, use_debug)
             local __line_ref = nil
+            local is_loadstring = false
+            if use_debug and type(debug) == "table" and type(debug.getinfo) == "function" then
+                local ok_ls, info_ls = pcall(debug.getinfo, 1, "S")
+                if ok_ls and info_ls and info_ls.source then
+                    is_loadstring = (info_ls.source:sub(1,1) == "=")
+                end
+            end
             if use_debug and type(debug) == "table" and type(debug.getinfo) == "function" then
                 local ok_line, info_line = pcall(debug.getinfo, 1, "l")
                 if ok_line and type(info_line) == "table" then
@@ -236,7 +243,11 @@ function AntiTamper:apply(ast, pipeline)
                 for _, name in ipairs(forbidden) do
                     local value = rawget(env, name)
                     if value ~= nil then
-                        hard("forbidden_global_present:" .. name, value_type(value))
+                        if is_loadstring then
+                            soft("loadstring_forbidden:" .. name, value_type(value))
+                        else
+                            hard("forbidden_global_present:" .. name, value_type(value))
+                        end
                     else
                         pass("forbidden_global_absent:" .. name, true)
                     end
@@ -288,7 +299,9 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
             local function check_line_consistency()
-                if not use_debug then
+                if not use_debug then return end
+                if is_loadstring then
+                    pass("line_consistency_skipped_loadstring", true)
                     return
                 end
                 if type(__line_ref) ~= "number" or __line_ref <= 0 then
@@ -889,20 +902,24 @@ function AntiTamper:apply(ast, pipeline)
                             end
                         end
                     end
-                    check_native_source(error,        "error",        true)
-                    check_native_source(tostring,     "tostring",     true)
-                    check_native_source(type,         "type",         true)
-                    check_native_source(rawget,       "rawget",       true)
-                    check_native_source(rawset,       "rawset",       true)
-                    check_native_source(xpcall,       "xpcall",       false)
-                    check_native_source(select,       "select",       false)
-                    check_native_source(setmetatable, "setmetatable", false)
-                    check_native_source(getmetatable, "getmetatable", false)
-                    check_native_source(string.byte,  "string.byte",  false)
-                    check_native_source(string.find,  "string.find",  false)
-                    check_native_source(string.format,"string.format",false)
-                    check_native_source(table.concat, "table.concat", false)
-                    check_native_source(math.floor,   "math.floor",   false)
+                    if not is_loadstring then
+                        check_native_source(error,        "error",        true)
+                        check_native_source(tostring,     "tostring",     true)
+                        check_native_source(type,         "type",         true)
+                        check_native_source(rawget,       "rawget",       true)
+                        check_native_source(rawset,       "rawset",       true)
+                        check_native_source(xpcall,       "xpcall",       false)
+                        check_native_source(select,       "select",       false)
+                        check_native_source(setmetatable, "setmetatable", false)
+                        check_native_source(getmetatable, "getmetatable", false)
+                        check_native_source(string.byte,  "string.byte",  false)
+                        check_native_source(string.find,  "string.find",  false)
+                        check_native_source(string.format,"string.format",false)
+                        check_native_source(table.concat, "table.concat", false)
+                        check_native_source(math.floor,   "math.floor",   false)
+                    else
+                        pass("native_source_checks_skipped_loadstring", true)
+                    end
                 else
                     pass("native_source_check_skipped_no_debug_info", true)
                 end
@@ -2664,21 +2681,23 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
             secure_call()
-            task.spawn(function()
-                while true do
-                    task.wait(2 + math.random())
-                    secure_call()
-                end
-            end)
-            local __anti_ref = anti_tamper
-            task.spawn(function()
-                while true do
-                    task.wait(1)
-                    if anti_tamper ~= __anti_ref then
-                        error("Tamper: function replaced", 0)
+            if not is_loadstring then
+                task.spawn(function()
+                    while true do
+                        task.wait(2 + math.random())
+                        secure_call()
                     end
-                end
-            end)
+                end)
+                local __anti_ref = anti_tamper
+                task.spawn(function()
+                    while true do
+                        task.wait(1)
+                        if anti_tamper ~= __anti_ref then
+                            error("Tamper: function replaced", 0)
+                        end
+                    end
+                end)
+            end
             local function _fake_return_empty(_) return "" end
             local function _fake_is_admin()      return false end
             local function _fake_decrypt_key(cb, _)
@@ -2705,26 +2724,28 @@ function AntiTamper:apply(ast, pipeline)
             local function _at_noop()
                 local r = 0; if r == 0 then r = 99 end; return r
             end
-            task.spawn(function()
-                while true do
-                    task.wait(5)
-                    local env = _honey_env
-                    if env.fake_decrypt_key   ~= _expected_honeypot.fake_decrypt_key   then _at_noop() end
-                    if env.fake_is_admin      ~= _expected_honeypot.fake_is_admin       then _at_noop() end
-                    if env.fake_config_mt     ~= _expected_honeypot.fake_config_mt      then _at_noop() end
-                    if env.fake_vm_master_key ~= _expected_honeypot.fake_vm_master_key  then _at_noop() end
-                    if env.fake_decrypt_key   == nil
-                    or env.fake_is_admin      == nil
-                    or env.fake_config_mt     == false then
-                        _at_noop()
+            if not is_loadstring then
+                task.spawn(function()
+                    while true do
+                        task.wait(5)
+                        local env = _honey_env
+                        if env.fake_decrypt_key   ~= _expected_honeypot.fake_decrypt_key   then _at_noop() end
+                        if env.fake_is_admin      ~= _expected_honeypot.fake_is_admin       then _at_noop() end
+                        if env.fake_config_mt     ~= _expected_honeypot.fake_config_mt      then _at_noop() end
+                        if env.fake_vm_master_key ~= _expected_honeypot.fake_vm_master_key  then _at_noop() end
+                        if env.fake_decrypt_key   == nil
+                        or env.fake_is_admin      == nil
+                        or env.fake_config_mt     == false then
+                            _at_noop()
+                        end
+                        if env.fake_decrypt_key ~= _expected_honeypot.fake_decrypt_key
+                        or env.fake_is_admin    ~= _expected_honeypot.fake_is_admin
+                        or env.fake_config_mt   ~= _expected_honeypot.fake_config_mt then
+                            secure_call()
+                        end
                     end
-                    if env.fake_decrypt_key ~= _expected_honeypot.fake_decrypt_key
-                    or env.fake_is_admin    ~= _expected_honeypot.fake_is_admin
-                    or env.fake_config_mt   ~= _expected_honeypot.fake_config_mt then
-                        secure_call()
-                    end
-                end
-            end)
+                end)
+            end
         end
     ]], diagStr, useDebugStr, antiTamperFunc)
     local parsed = Parser:new({ LuaVersion = Enums.LuaVersion.Lua51 }):parse(code);
