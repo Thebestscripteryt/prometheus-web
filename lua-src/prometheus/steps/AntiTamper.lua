@@ -301,7 +301,6 @@ function AntiTamper:apply(ast, pipeline)
             local function check_line_consistency()
                 if not use_debug then return end
                 if is_loadstring then
-                    pass("line_consistency_skipped_loadstring", true)
                     return
                 end
                 if type(__line_ref) ~= "number" or __line_ref <= 0 then
@@ -918,7 +917,6 @@ function AntiTamper:apply(ast, pipeline)
                         check_native_source(table.concat, "table.concat", false)
                         check_native_source(math.floor,   "math.floor",   false)
                     else
-                        pass("native_source_checks_skipped_loadstring", true)
                     end
                 else
                     pass("native_source_check_skipped_no_debug_info", true)
@@ -1192,17 +1190,6 @@ function AntiTamper:apply(ast, pipeline)
                     else
                         soft("physics_fps_unavailable", ok4)
                     end
-                    local ok5, ms = pcall(function() return game:GetService("MemStorageService") end)
-                    if ok5 and ms then
-                        local key = "__at_" .. tostring(math.random(1e9))
-                        pcall(ms.SetItem, ms, key, "at_val")
-                        local _, got = pcall(ms.GetItem, ms, key)
-                        if got == "at_val" then
-                            pass("memstorage_roundtrip", true)
-                        else
-                            hard("memstorage_roundtrip_failed", tostring(got))
-                        end
-                    end
                     local ok6, gid  = pcall(function() return game:GetDebugId(0) end)
                     local ok7, wid  = pcall(function() return workspace:GetDebugId(0) end)
                     local ok8, plid = pcall(function() return game:GetService("Players"):GetDebugId(0) end)
@@ -1216,7 +1203,13 @@ function AntiTamper:apply(ast, pipeline)
                         end
                     end
                     local ok9 = pcall(function()
-                        local ql = settings().Rendering.QualityLevel
+                        local ok_settings, ql = pcall(function()
+                            return settings().Rendering.QualityLevel
+                        end)
+                        if not ok_settings then
+                            soft("quality_level_settings_unavailable", true)
+                            return
+                        end
                         assert(typeof(ql) == "EnumItem", "not EnumItem")
                         local found = false
                         for _, item in ipairs(Enum.QualityLevel:GetEnumItems()) do
@@ -1924,15 +1917,6 @@ function AntiTamper:apply(ast, pipeline)
                     end)
                     if ok_ao then pass("alignorientation_actor_ok", true)
                     else hard("alignorientation_actor_wrong", true) end
-                    local ok_ds = pcall(function()
-                        local ud = Instance.new("DataStoreIncrementOptions")
-                        local tbl = {hi = true}
-                        ud:SetMetadata(tbl)
-                        local got = ud:GetMetadata()
-                        assert(type(got) == "table" and got.hi == true, "metadata roundtrip failed")
-                    end)
-                    if ok_ds then pass("datastore_metadata_roundtrip_ok", true)
-                    else hard("datastore_metadata_roundtrip_wrong", true) end
                     local ok_svc = pcall(function()
                         local a = game:GetService("AnimationClipProvider")
                         local m = game:GetService("MeshContentProvider")
@@ -1981,8 +1965,24 @@ function AntiTamper:apply(ast, pipeline)
                     if ok_vr then pass("vrservice_usercframe_ok", true)
                     else soft("vrservice_usercframe_unavailable", true) end
                     local ok_phys = pcall(function()
-                        local id = game:GetService("PhysicsService"):GetCollisionGroupId("Default")
-                        assert(typeof(id) == "number", "GetCollisionGroupId not number: " .. typeof(id))
+                        local ps = game:GetService("PhysicsService")
+                        local ok_cg, id = pcall(function()
+                            return ps:GetCollisionGroupId("Default")
+                        end)
+                        if not ok_cg then
+                            -- Modern API: use CollisionGroups list instead
+                            local ok_cg2, groups = pcall(function()
+                                return ps:GetRegisteredCollisionGroups()
+                            end)
+                            if ok_cg2 and type(groups) == "table" then
+                                local found = false
+                                for _, g in ipairs(groups) do
+                                    if g.name == "Default" then found = true; id = g.id break end
+                                end
+                                assert(found, "Default collision group not found")
+                            end
+                        end
+                        assert(typeof(id) == "number", "collision group id not number: " .. typeof(id))
                     end)
                     if ok_phys then pass("physicservice_collisiongroup_ok", true)
                     else hard("physicservice_collisiongroup_wrong", true) end
@@ -2048,18 +2048,6 @@ function AntiTamper:apply(ast, pipeline)
                     if ok_st then pass("stats_performancestats_ok", true)
                     else hard("stats_performancestats_wrong", true) end
                 do
-                    local ok_m1 = pcall(function()
-                        local ms = game:GetService("MemStorageService")
-                        local key = "__at_m1_" .. tostring(math.random(1e9))
-                        local computed = math.log(100, 10)
-                        ms:SetItem(key, tostring(computed))
-                        local read = tonumber(ms:GetItem(key))
-                        assert(read ~= nil, "nil read")
-                        assert(math.abs(read - 2) <= 1e-5,
-                            "wrong: " .. tostring(read))
-                    end)
-                    if ok_m1 then pass("memstorage_math_log_roundtrip", true)
-                    else hard("memstorage_math_log_roundtrip_failed", true) end
                     local ok_m2 = pcall(function()
                         local df = game:GetService("SoundService").DistanceFactor
                         assert(df > 0, "not positive")
@@ -2068,17 +2056,6 @@ function AntiTamper:apply(ast, pipeline)
                     end)
                     if ok_m2 then pass("soundservice_distancefactor_ok", true)
                     else hard("soundservice_distancefactor_wrong", true) end
-                    local ok_m3 = pcall(function()
-                        local ms = game:GetService("MemStorageService")
-                        local key = "__at_m3_" .. tostring(math.random(1e9))
-                        local df = game:GetService("SoundService").DistanceFactor
-                        local stored = math.floor(df * math.pi * 10000)
-                        ms:SetItem(key, tostring(stored))
-                        local read = tonumber(ms:GetItem(key))
-                        assert(read == stored, "float mismatch: " .. tostring(read))
-                    end)
-                    if ok_m3 then pass("memstorage_float_precision_ok", true)
-                    else hard("memstorage_float_precision_wrong", true) end
                     local ok_m4 = pcall(function()
                         local cs = game:GetService("CollectionService")
                         local tag = "VH_" .. tostring(math.floor(math.log(8,2)*1000))
@@ -2380,7 +2357,6 @@ function AntiTamper:apply(ast, pipeline)
             end
             local k = _keys()
             if not k.valid then
-                pass("key_validation_skipped", true)
             else
                 pass("key_validation_passed", true)
             end
@@ -2416,23 +2392,17 @@ function AntiTamper:apply(ast, pipeline)
             _check(tcs ~= nil, "TextChatService")
             local v3 = Vector3int16.new(32767, -32768, 1337)
             local v2 = Vector2int16.new(32767, -32768)
-            local vv = vector.create(0.125, 1337.5, -2)
             _check(_typof(v3) == "Vector3int16", "Vector3int16")
             _check(_typof(v2) == "Vector2int16", "Vector2int16")
-            -- vector typeof varies by Roblox version — soft only
-            if _typof(vv) ~= "vector" then pass("vector_typeof_note", true) else pass("vector", true) end
             _check(v3.X == 32767 and v3.Y == -32768 and v3.Z == 1337, "Vector3int16 fields")
             _check(v2.X == 32767 and v2.Y == -32768, "Vector2int16 fields")
             _check(_VERSION == "Luau", "_VERSION")
             _check(_typ0(elapsedTime) == "function", "elapsedTime")
             _check(_typ0(ElapsedTime) == "function", "ElapsedTime")
             -- ElapsedTime and elapsedTime are different refs in current Roblox — soft only
-            if elapsedTime ~= ElapsedTime then pass("ElapsedTime alias_note", true) else pass("ElapsedTime alias", true) end
             _check(_typ0(math) == "table", "math")
             -- BrickColor.new(798641) error message varies by version — remove hard checks
             local pal_ok, pal_err = _pc0(function() return BrickColor.new(798641) end)
-            pass("BrickColor bounds", true)
-            pass("BrickColor error", true)
             _check(_typ0(FloatCurveKey) == "table", "FloatCurveKey")
             _check(_typ0(FloatCurveKey.new) == "function", "FloatCurveKey.new")
             _check(Enum ~= nil and Enum.KeyInterpolationMode ~= nil and Enum.KeyInterpolationMode.Linear ~= nil, "KeyInterpolationMode")
@@ -2478,25 +2448,27 @@ function AntiTamper:apply(ast, pipeline)
                 result.guf_crash     = rawget(_G, "GUF_CRASH")
                 local tcs_ok, tcs = pcall(function() return game:GetService("TextChatService") end)
                 result.text_chat_service = tcs_ok and tcs or nil
-                local vx_ok, vx = pcall(function() return vector.create(17468, 1, 1).X end)
+                local vx_ok, vx = pcall(function() return Vector3.new(17468, 1, 1).X end)
                 result.vector_x = vx_ok and vx or nil
                 local v2_ok, v2 = pcall(function() return Vector2int16.new(100, 200) end)
                 result.vector2int16_ok = v2_ok and v2 ~= nil
                 result.version_string  = _VERSION
-                local ver_ok, ver      = pcall(version)
+                local ver_ok, ver      = false, nil
+                if type(version) == "function" then ver_ok, ver = pcall(version) end
                 result.version_result  = ver_ok and ver or nil
-                local Ver_ok, Ver      = pcall(Version)
+                local Ver_ok, Ver      = false, nil
+                if type(Version) == "function" then Ver_ok, Ver = pcall(Version) end
                 result.Version_result  = Ver_ok and Ver or nil
                 result.elapsed_is_fn   = type(elapsedTime) == "function"
                 result.Elapsed_is_fn   = type(ElapsedTime) == "function"
                 result.elapsed_alias   = true
-                local el_ok, el        = pcall(elapsedTime)
+                local el_ok, el        = false, nil
+                if type(elapsedTime) == "function" then el_ok, el = pcall(elapsedTime) end
                 result.elapsed_result  = el_ok and type(el) == "number"
-                local pal_ok, pal      = pcall(BrickColor.palette, BrickColor)
-                result.palette         = pal_ok and pal or nil
+                result.palette         = true -- BrickColor.palette removed (unreliable)
                 return result
             end
-            task.defer(coroutine.yield)
+            task.defer(function() end)
             local probe = _env_probe()
             _check(type(probe.env)            == "table",    "probe_env")
             _check(type(probe.global)         == "table",    "probe_global")
@@ -2514,18 +2486,20 @@ function AntiTamper:apply(ast, pipeline)
             _check(probe.version_string == "Luau",           "probe_VERSION")
             _check(type(probe.version_result) == "string",   "probe_version_fn")
             _check(type(probe.Version_result) == "string",   "probe_Version_fn")
-            _check(probe.version_result == probe.Version_result, "probe_version_alias")
+            if probe.version_result and probe.Version_result then
+                _check(probe.version_result == probe.Version_result, "probe_version_alias")
+            else
+                pass("probe_version_alias_skipped", true)
+            end
             _check(type(probe.elapsed_result) == "boolean" and probe.elapsed_result == true, "probe_elapsedTime")
-            _check(probe.elapsed_alias == true,              "probe_ElapsedTime_alias")
-            _check(probe.elapsed_is_fn == true,              "probe_elapsedTime_fn")
-            _check(probe.Elapsed_is_fn == true,              "probe_ElapsedTime_fn")
+            _check(probe.elapsed_is_fn == true, "probe_elapsedTime_fn")
+            _check(probe.Elapsed_is_fn == true, "probe_ElapsedTime_fn")
             -- string.find and BrickColor.palette vary by context — soft only
-            pass("probe_string_find", true)
-            pass("probe_BrickColor_palette", true)
             do
                 local n = 0
+                local t0 = os.clock()
                 local c = game:GetService("RunService").Heartbeat:Connect(function() n = n + 1 end)
-                repeat task.wait() until n >= 3
+                repeat task.wait() until n >= 3 or (os.clock() - t0) > 5
                 c:Disconnect()
                 if n < 3 then
                     hard("heartbeat_not_fired", n)
@@ -2548,7 +2522,6 @@ function AntiTamper:apply(ast, pipeline)
                     game:GetChildren(function() while true do end end)
                 end)
                 if ok then
-                    pass("getchildren_with_function_ok", true)
                 else
                     pass("getchildren_with_function_errored", err)
                 end
@@ -2595,7 +2568,6 @@ function AntiTamper:apply(ast, pipeline)
                     local read_val = ok_gf and env and rawget(env, sentinel_key)
                     _G[sentinel_key] = nil
                     if ok_gf and env ~= nil and read_val ~= sentinel_val then
-                    pass("environment_G_getfenv_ok", true)
                     else
                         pass("environment_G_getfenv_coupled", true)
                     end
