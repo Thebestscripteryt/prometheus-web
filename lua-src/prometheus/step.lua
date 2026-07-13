@@ -45,7 +45,7 @@ function Step:new(settings)
 			
 			if data.max then
 				if  settings[key] > data.max then
-					logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". The biggest allowed value is %d", key, self.Name, data.min));
+					logger:error(string.format("Invalid value for the Setting \"%s\" of the Step \"%s\". The biggest allowed value is %d", key, self.Name, data.max));
 				end
 			end
 			
