@@ -73,8 +73,16 @@ end
 function Tokenizer:getPosition(i)
 	local column = self.columnMap[i]
 
-	if not column then --// `i` is bigger than self.length, this shouldnt happen, but it did. (Theres probably some error in the tokenizer, cant find it.)
-		column = self.columnMap[#self.columnMap] 
+	if not column then --// `i` is bigger than self.length (e.g. an EOF position one past the last character).
+		column = self.columnMap[self.length]
+		if not column then
+			-- Empty source: no columns exist at all.
+			return 1, 1;
+		end
+		-- `i` was never a key in this column's charMap (it only holds keys up
+		-- to self.length), so reusing it here would always return nil. Report
+		-- one past the last real character's column instead.
+		return column.id, column.length + 1;
 	end
 
 	return column.id, column.charMap[i]
@@ -91,11 +99,11 @@ function Tokenizer:prepareGetPosition()
 		column.length = columnLength
 		column.charMap[index] = columnLength
 
+		columnMap[index] = column
+
 		if character == "\n" then
 			column = { charMap = {}, id = column.id + 1, length = 0 } -- NOTE_1
 		end
-
-		columnMap[index] = column
 	end
 
 	self.columnMap = columnMap
