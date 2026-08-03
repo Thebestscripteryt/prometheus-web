@@ -7,5 +7,5 @@
 local PREFIX = "_";
 
 return function(id, scope)
-	return PREFIX .. tostring(id);
+	return PREFIX .. string.format("%x", id);
 end
