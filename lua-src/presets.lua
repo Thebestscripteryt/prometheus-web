@@ -199,18 +199,18 @@ return {
                 }
             },
             {
-            -- Second junk-code pass: EncryptStrings/ConstantArray above just
-            -- generated a decrypt/decoder runtime. Running JunkCodeInsertion
-            -- again here pollutes that generated runtime with dead branches
-            -- too, instead of leaving it as the one clean, recognizable block
-            -- in an otherwise junk-laden script.
-            {
+                -- Second junk-code pass: EncryptStrings/ConstantArray above just
+                -- generated a decrypt/decoder runtime. Running JunkCodeInsertion
+                -- again here pollutes that generated runtime with dead branches
+                -- too, instead of leaving it as the one clean, recognizable block
+                -- in an otherwise junk-laden script.
                 Name = "JunkCodeInsertion";
                 Settings = {
                     Treshold = 0.15;
                     MaxJunkStatements = 3;
                 };
             },
+            {
                 Name = "WrapInFunction";
                 Settings = {
 
