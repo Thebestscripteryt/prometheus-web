@@ -3,6 +3,8 @@
 -- util.lua
 -- This file Provides a Utility function for visiting each node of an ast
 
+local unpack = unpack or table.unpack;
+
 local Ast = require("prometheus.ast");
 local util = require("prometheus.util");
 
