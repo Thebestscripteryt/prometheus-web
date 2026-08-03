@@ -64,15 +64,16 @@ Enums.Conventions = {
 			"repeat", "return", "then",  "true",     "until",    "while"
 		},
 		
-		SymbolChars = chararray("+-*/%^#=~<>(){}[];:,."),
+		SymbolChars = chararray("+-*/%^#=~<>(){}[];:,.@"),
 		MaxSymbolLength = 3,
 		Symbols = {
 			"+",  "-",  "*",  "/",  "%",  "^",  "#",
 			"==", "~=", "<=", ">=", "<",  ">",  "=",
 			"+=", "-=", "/=", "%=", "^=", "..=", "*=",
+			"//", "//=",
 			"(",  ")",  "{",  "}",  "[",  "]",
 			";",  ":",  ",",  ".",  "..", "...",
-			"::", "->", "?",  "|",  "&", 
+			"::", "->", "?",  "|",  "&",  "@",
 		},
 
 		IdentChars          = chararray("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789"),
