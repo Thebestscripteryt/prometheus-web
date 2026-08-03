@@ -58,6 +58,7 @@ function Pipeline:new(settings)
 	local pipeline = {
 		LuaVersion = luaVersion;
 		PrettyPrint = prettyPrint;
+		Highlight = settings.Highlight;
 		VarNamePrefix = prefix;
 		Seed = seed;
 		parser = Parser:new({
@@ -123,7 +124,7 @@ function Pipeline:setOption(name, value)
 	if(Pipeline.DefaultSettings[name] ~= nil) then
 		
 	else
-		logger:error(string.format("\"%s\" is not a valid setting"));
+		logger:error(string.format("\"%s\" is not a valid setting", name));
 	end
 end
 
@@ -135,16 +136,19 @@ function Pipeline:setLuaVersion(luaVersion)
 	end
 	
 	self.parser = Parser:new({
-		luaVersion = luaVersion;
+		LuaVersion = luaVersion;
 	});
 	self.unparser = Unparser:new({
-		luaVersion = luaVersion;
+		LuaVersion = luaVersion;
+		PrettyPrint = self.PrettyPrint;
+		Highlight = self.Highlight;
 	});
 	self.conventions = conventions;
+	self.LuaVersion = luaVersion;
 end
 
 function Pipeline:getLuaVersion()
-	return self.luaVersion;
+	return self.LuaVersion;
 end
 
 function Pipeline:setNameGenerator(nameGenerator)
