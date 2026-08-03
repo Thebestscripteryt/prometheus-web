@@ -137,6 +137,64 @@ local function expect(self, kind, source)
 	end
 end
 
+-- Skips a balanced bracketed region used by type syntax (parens, braces, or
+-- angle brackets for generics). Tracks total nesting depth across all three
+-- kinds rather than matching each opener to its specific closer - this is
+-- safe here because we only ever call this on well-formed input (a script
+-- that doesn't parse in real Luau wouldn't compile there either), and we're
+-- discarding the contents anyway, not building an AST from them.
+local function skipBalanced(self, openSymbol)
+	expect(self, TokenKind.Symbol, openSymbol);
+	local depth = 1;
+	while depth > 0 do
+		if(is(self, TokenKind.Eof)) then
+			if self.disableLog then error() end
+			logger:error(generateError(self, "Unexpected end of file while skipping a type annotation"));
+			return;
+		end
+		if(is(self, TokenKind.Symbol, "(") or is(self, TokenKind.Symbol, "{") or is(self, TokenKind.Symbol, "<")) then
+			depth = depth + 1;
+		elseif(is(self, TokenKind.Symbol, ")") or is(self, TokenKind.Symbol, "}") or is(self, TokenKind.Symbol, ">")) then
+			depth = depth - 1;
+		end
+		get(self);
+	end
+end
+
+-- Skips a single type "atom": a (possibly dotted, possibly generic) name,
+-- a parenthesized/function type, a table type, or a literal type.
+local function skipTypeAtom(self)
+	if(is(self, TokenKind.Symbol, "(")) then
+		skipBalanced(self, "(");
+		if(consume(self, TokenKind.Symbol, "->")) then
+			skipTypeAtom(self);
+		end
+	elseif(is(self, TokenKind.Symbol, "{")) then
+		skipBalanced(self, "{");
+	elseif(is(self, TokenKind.Keyword, "nil") or is(self, TokenKind.Keyword, "true") or is(self, TokenKind.Keyword, "false")) then
+		get(self);
+	elseif(is(self, TokenKind.String) or is(self, TokenKind.Number)) then
+		get(self);
+	else
+		expect(self, TokenKind.Ident);
+		while(consume(self, TokenKind.Symbol, ".")) do
+			expect(self, TokenKind.Ident);
+		end
+		if(is(self, TokenKind.Symbol, "<")) then
+			skipBalanced(self, "<");
+		end
+	end
+	while(consume(self, TokenKind.Symbol, "?")) do end
+end
+
+-- Skips a full type expression, including unions (|) and intersections (&).
+local function skipType(self)
+	skipTypeAtom(self);
+	while(consume(self, TokenKind.Symbol, "|") or consume(self, TokenKind.Symbol, "&")) do
+		skipTypeAtom(self);
+	end
+end
+
 -- Parse the given code to an Abstract Syntax Tree
 function Parser:parse(code)
 	self.tokenizer:append(code);
@@ -183,6 +241,13 @@ function Parser:statement(scope, currentLoop)
 	-- NOP statements are therefore ignored
 	while(consume(self, TokenKind.Symbol, ";")) do
 		
+	end
+	
+	-- Function Attributes (e.g. @native, @deprecated) - these are compile-time
+	-- hints only and have no effect on runtime behavior, so we parse and
+	-- discard them rather than threading them through the AST.
+	while(consume(self, TokenKind.Symbol, "@")) do
+		expect(self, TokenKind.Ident);
 	end
 	
 	-- Break Statement - only valid inside of Loops
@@ -282,9 +347,19 @@ function Parser:statement(scope, currentLoop)
 		
 		local funcScope = Scope:new(scope);
 		
+		-- Generic type parameters (e.g. function foo<T>(...)) - discarded, see skipType.
+		if(is(self, TokenKind.Symbol, "<")) then
+			skipBalanced(self, "<");
+		end
+		
 		expect(self, TokenKind.Symbol, "(");
 		local args = self:functionArgList(funcScope);
 		expect(self, TokenKind.Symbol, ")");
+		
+		-- Return type annotation (e.g. function foo(): number) - discarded.
+		if(consume(self, TokenKind.Symbol, ":")) then
+			skipType(self);
+		end
 		
 		if(obj.passSelf) then
 			local id = funcScope:addVariable("self", obj.token);
@@ -307,9 +382,19 @@ function Parser:statement(scope, currentLoop)
 			local id = scope:addVariable(name, ident);
 			local funcScope = Scope:new(scope);
 			
+			-- Generic type parameters - discarded.
+			if(is(self, TokenKind.Symbol, "<")) then
+				skipBalanced(self, "<");
+			end
+			
 			expect(self, TokenKind.Symbol, "(");
 			local args = self:functionArgList(funcScope);
 			expect(self, TokenKind.Symbol, ")");
+			
+			-- Return type annotation - discarded.
+			if(consume(self, TokenKind.Symbol, ":")) then
+				skipType(self);
+			end
 
 			local body = self:block(nil, false, funcScope);
 			expect(self, TokenKind.Keyword, "end");
@@ -333,6 +418,21 @@ function Parser:statement(scope, currentLoop)
 			logger:warn(generateWarning(peek(self, -1), string.format("assigning %d value" .. ((#expressions > 1 and "s") or "") .. 
 				" to %d variables initializes extra variables with nil, add a nil value to silence", #expressions, #ids)));
 		end		
+		return Ast.LocalVariableDeclaration(scope, ids, expressions);
+	end
+	
+	-- Const Variable Declaration (LuaU) - `const` is a context-sensitive
+	-- keyword, not a reserved one (like `type`), so we only treat it as a
+	-- const-declaration when it's immediately followed by another identifier -
+	-- otherwise it's just a normal use of a variable/function named "const".
+	if(self.luaVersion == LuaVersion.LuaU and is(self, TokenKind.Ident, "const") and is(self, TokenKind.Ident, 1)) then
+		get(self);
+		local ids = self:nameList(scope);
+		local expressions = {};
+		if(consume(self, TokenKind.Symbol, "=")) then
+			expressions = self:exprList(scope);
+		end
+		self:enableNameList(scope, ids);
 		return Ast.LocalVariableDeclaration(scope, ids, expressions);
 	end
 	
@@ -515,11 +615,17 @@ function Parser:nameList(scope)
 	local ident = expect(self, TokenKind.Ident);
 	local id = scope:addDisabledVariable(ident.value, ident);
 	table.insert(ids, id);
+	if(consume(self, TokenKind.Symbol, ":")) then
+		skipType(self);
+	end
 	
 	while(consume(self, TokenKind.Symbol, ",")) do
 		ident = expect(self, TokenKind.Ident);
 		id = scope:addDisabledVariable(ident.value, ident);
 		table.insert(ids, id);
+		if(consume(self, TokenKind.Symbol, ":")) then
+			skipType(self);
+		end
 	end
 	
 	return ids;
@@ -579,6 +685,7 @@ function Parser:interpolatedStringExpression(scope)
 			subParser.tokens = subTokens;
 			subParser.length = #subTokens;
 			subParser.index = 0;
+			subParser.disableLog = self.disableLog;
 
 			local exprNode = subParser:expression(scope);
 			parts[#parts + 1] = { kind = "expr", node = exprNode };
@@ -781,6 +888,9 @@ function Parser:functionArgList(scope)
 	local args = {};
 	if(consume(self, TokenKind.Symbol, "...")) then
 		table.insert(args, Ast.VarargExpression());
+		if(consume(self, TokenKind.Symbol, ":")) then
+			skipType(self);
+		end
 		return args;
 	end
 	
@@ -790,10 +900,16 @@ function Parser:functionArgList(scope)
 		
 		local id = scope:addVariable(name, ident);
 		table.insert(args, Ast.VariableExpression(scope, id));
+		if(consume(self, TokenKind.Symbol, ":")) then
+			skipType(self);
+		end
 		
 		while(consume(self, TokenKind.Symbol, ",")) do
 			if(consume(self, TokenKind.Symbol, "...")) then
 				table.insert(args, Ast.VarargExpression());
+				if(consume(self, TokenKind.Symbol, ":")) then
+					skipType(self);
+				end
 				return args;
 			end
 			
@@ -802,6 +918,9 @@ function Parser:functionArgList(scope)
 
 			id = scope:addVariable(name, ident);
 			table.insert(args, Ast.VariableExpression(scope, id));
+			if(consume(self, TokenKind.Symbol, ":")) then
+				skipType(self);
+			end
 		end
 	end
 	
