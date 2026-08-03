@@ -5,7 +5,7 @@ local Parser = require("prometheus.parser");
 local Enums = require("prometheus.enums");
 local logger = require("logger");
 local AntiTamper = Step:extend();
-AntiTamper.Description = "Injects a multi‑layer anti‑tamper system (supports Roblox & generic Lua).";
+AntiTamper.Description = "Injects a multi-layer, Roblox-specific anti-tamper system. Requires a Roblox (Luau) environment - the generated code hard-fails if the 'game' global is unavailable, so this step is not suitable for non-Roblox Lua targets.";
 AntiTamper.Name = "Anti Tamper";
 AntiTamper.SettingsDescriptor = {
     UseDebug = {
@@ -261,6 +261,74 @@ function AntiTamper:apply(ast, pipeline)
                             hard("forbidden_global_pattern:" .. key, true)
                         end
                     end
+                end
+            end
+            local function check_known_executor_globals()
+                -- Curated list of globals that only exist inside Roblox script
+                -- executors (Synapse, Script-Ware, KRNL, and similar), never in a
+                -- stock Roblox client. Legitimate scripts have no reason to define
+                -- any of these names, so their presence is a strong tamper signal.
+                -- A handful of individually-notable ones (getgenv, hookfunction,
+                -- clonefunction, getcallingscript, getrawmetatable) are already
+                -- checked elsewhere in this file and are intentionally left out
+                -- here to avoid duplicate reports.
+                local KNOWN_EXECUTOR_GLOBALS = {
+                    "getrenv", "getsenv", "setrawmetatable",
+                    "hookfunc", "hookmetamethod", "newcclosure",
+                    "cloneref", "compareinstances",
+                    "iscclosure", "islclosure", "isexecutorclosure", "checkclosure", "isourclosure",
+                    "checkcaller",
+                    "getconnections", "firesignal", "fireclickdetector", "fireproximityprompt", "firetouchinterest",
+                    "getgc", "getinstances", "getnilinstances", "getscripts", "getrunningscripts",
+                    "getloadedmodules", "getactors",
+                    "getscriptbytecode", "dumpstring", "getscripthash", "getscriptclosure", "decompile",
+                    "readfile", "writefile", "appendfile", "loadfile", "listfiles",
+                    "isfile", "isfolder", "makefolder", "delfolder", "delfile",
+                    "setclipboard", "toclipboard", "getclipboard", "setrbxclipboard",
+                    "queue_on_teleport", "queueonteleport",
+                    "setthreadidentity", "getthreadidentity",
+                    "setidentity", "getidentity", "setthreadcontext", "getthreadcontext",
+                    "getnamecallmethod", "setnamecallmethod",
+                    "isreadonly", "setreadonly",
+                    "gethiddenproperty", "sethiddenproperty", "isscriptable", "setscriptable",
+                    "identifyexecutor", "getexecutorname",
+                    "http_request", "syn",
+                    "cleardrawcache", "isrenderobj",
+                    "crypt",
+                    "lz4compress", "lz4decompress",
+                    "mouse1click", "mouse1press", "mouse1release",
+                    "mouse2click", "mouse2press", "mouse2release",
+                    "mousemoveabs", "mousemoverel", "mousescroll",
+                    "gethui", "getcustomasset", "getcallbackvalue", "messagebox",
+                    "isrbxactive", "isgameactive", "setfpscap",
+                    "getregistry", "getreg", "getstack",
+                    "rconsoleclear", "rconsolecreate", "rconsoledestroy",
+                    "rconsoleinput", "rconsoleprint", "rconsolesettitle", "rconsolename",
+                    "run_on_actor", "runonactor",
+                }
+                local env = _G
+                if type(getgenv) == "function" then
+                    local ok, result = pcall(getgenv)
+                    if ok and type(result) == "table" then env = result end
+                end
+                if type(env) ~= "table" then
+                    pass("executor_globals_environment_unavailable", true)
+                    return
+                end
+                local found_any = false
+                for _, name in ipairs(KNOWN_EXECUTOR_GLOBALS) do
+                    local value = rawget(env, name)
+                    if value ~= nil then
+                        found_any = true
+                        if is_loadstring then
+                            soft("known_executor_global_present:" .. name, value_type(value))
+                        else
+                            hard("known_executor_global_present:" .. name, value_type(value))
+                        end
+                    end
+                end
+                if not found_any then
+                    pass("known_executor_globals_absent", true)
                 end
             end
             local function check_debug_hook()
@@ -923,6 +991,7 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
             check_forbidden_globals()
+            check_known_executor_globals()
             check_debug_hook()
             check_line_consistency()
             check_coroutine_state()
@@ -1429,12 +1498,16 @@ function AntiTamper:apply(ast, pipeline)
                         "__sandbox", "__mock", "__wrapped", "__intercept",
                         "_real_env", "__HOOKED__",
                     }
+                    local found_marker = false
                     for _, key in ipairs(sandbox_keys) do
                         if rawget(_G, key) ~= nil then
                             hard("sandbox_marker_present:" .. key, true)
+                            found_marker = true
                         end
                     end
-                    pass("sandbox_markers_absent", true)
+                    if not found_marker then
+                        pass("sandbox_markers_absent", true)
+                    end
                 end
                 do
                     local ok, part = pcall(Instance.new, "Part")
@@ -2357,6 +2430,7 @@ function AntiTamper:apply(ast, pipeline)
             end
             local k = _keys()
             if not k.valid then
+                hard("key_validation_failed", { jm = k.jm, J9 = k.J9, K7_88 = k.K7_88 })
             else
                 pass("key_validation_passed", true)
             end
@@ -2378,8 +2452,11 @@ function AntiTamper:apply(ast, pipeline)
                 hard("GUF_CRASH_fail", s)
             end
             local function _check_wrap(v, n)
-                if not v then _fail(n) end
-                pass(n, true)
+                if not v then
+                    _fail(n)
+                else
+                    pass(n, true)
+                end
             end
             local function _probe_task_defer()
                 task.defer(function()
@@ -2522,6 +2599,7 @@ function AntiTamper:apply(ast, pipeline)
                     game:GetChildren(function() while true do end end)
                 end)
                 if ok then
+                    hard("getchildren_accepted_invalid_argument", true)
                 else
                     pass("getchildren_with_function_errored", err)
                 end
@@ -2568,6 +2646,7 @@ function AntiTamper:apply(ast, pipeline)
                     local read_val = ok_gf and env and rawget(env, sentinel_key)
                     _G[sentinel_key] = nil
                     if ok_gf and env ~= nil and read_val ~= sentinel_val then
+                        hard("environment_G_getfenv_decoupled", true)
                     else
                         pass("environment_G_getfenv_coupled", true)
                     end
@@ -2609,15 +2688,11 @@ function AntiTamper:apply(ast, pipeline)
             report.soft_signal_count = #report.soft_signals
             report.passed_count = #report.passed
             report.blocked = report.hard_failure_count > 0 or report.soft_signal_count >= 8
-            for _, f in ipairs(report.hard_failures) do
-            end
-            for _, s in ipairs(report.soft_signals) do
-            end
             if diagnostic_mode then
                 return report
             end
             if report.blocked then
-                error("invalid binary", 0)
+                _err0("invalid binary", 0)
             end
             return true
         end
@@ -2626,6 +2701,7 @@ function AntiTamper:apply(ast, pipeline)
     local diagStr = self.DiagnosticMode and "true" or "false"
     local code = string.format([[
         do
+            local _outer_err0 = error
             local diagnostic_mode = %s
             local use_debug = %s
             %s
@@ -2644,12 +2720,12 @@ function AntiTamper:apply(ast, pipeline)
                 return false
             end
             if is_hooked(pcall) or is_hooked(error) then
-                error("Tamper: core functions hooked", 0)
+                _outer_err0("Tamper: core functions hooked", 0)
             end
             local function secure_call()
                 local ok = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
-                    error("Tamper detected", 0)
+                    _outer_err0("Tamper detected", 0)
                 end
             end
             secure_call()
@@ -2665,7 +2741,7 @@ function AntiTamper:apply(ast, pipeline)
                     while true do
                         task.wait(1)
                         if anti_tamper ~= __anti_ref then
-                            error("Tamper: function replaced", 0)
+                            _outer_err0("Tamper: function replaced", 0)
                         end
                     end
                 end)
@@ -2701,10 +2777,10 @@ function AntiTamper:apply(ast, pipeline)
                     while true do
                         task.wait(5)
                         local env = _honey_env
-                        if env.fake_decrypt_key   ~= _expected_honeypot.fake_decrypt_key   then _at_noop() end
-                        if env.fake_is_admin      ~= _expected_honeypot.fake_is_admin       then _at_noop() end
-                        if env.fake_config_mt     ~= _expected_honeypot.fake_config_mt      then _at_noop() end
-                        if env.fake_vm_master_key ~= _expected_honeypot.fake_vm_master_key  then _at_noop() end
+                        if env.fake_decrypt_key   ~= _expected_honeypot.fake_decrypt_key   then secure_call() end
+                        if env.fake_is_admin      ~= _expected_honeypot.fake_is_admin       then secure_call() end
+                        if env.fake_config_mt     ~= _expected_honeypot.fake_config_mt      then secure_call() end
+                        if env.fake_vm_master_key ~= _expected_honeypot.fake_vm_master_key  then secure_call() end
                         if env.fake_decrypt_key   == nil
                         or env.fake_is_admin      == nil
                         or env.fake_config_mt     == false then
@@ -2712,7 +2788,8 @@ function AntiTamper:apply(ast, pipeline)
                         end
                         if env.fake_decrypt_key ~= _expected_honeypot.fake_decrypt_key
                         or env.fake_is_admin    ~= _expected_honeypot.fake_is_admin
-                        or env.fake_config_mt   ~= _expected_honeypot.fake_config_mt then
+                        or env.fake_config_mt   ~= _expected_honeypot.fake_config_mt
+                        or env.fake_vm_master_key ~= _expected_honeypot.fake_vm_master_key then
                             secure_call()
                         end
                     end
