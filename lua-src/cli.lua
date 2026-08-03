@@ -22,7 +22,8 @@ end
 
 string.split = function(str, sep)
     local fields = {}
-    local pattern = string.format("([^%s]+)", sep)
+    local escapedSep = sep:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%1")
+    local pattern = string.format("([^%s]+)", escapedSep)
     str:gsub(pattern, function(c) fields[#fields+1] = c end)
     return fields
 end
@@ -73,6 +74,9 @@ while i <= #arg do
 
             local content = read_file(filename);
             -- Load Config from File
+            if not loadstring or not setfenv then
+                Prometheus.Logger:error("The --config option requires a Lua 5.1-compatible host interpreter (loadstring/setfenv unavailable here).");
+            end
             local func = loadstring(content);
             -- Sandboxing
             setfenv(func, {});
@@ -94,7 +98,7 @@ while i <= #arg do
         elseif curr == "--saveerrors" then
             -- Override error callback
             Prometheus.Logger.errorCallback =  function(...)
-                print(Prometheus.colors(Prometheus.Config.NameUpper .. ": " .. ..., "red"))
+                print(Prometheus.colors(Prometheus.Config.NameUpper .. ": " .. table.concat({...}, " "), "red"))
                 
                 local args = {...};
                 local message = table.concat(args, " ");
