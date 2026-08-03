@@ -4,6 +4,8 @@
 --
 -- This Script provides a Simple Obfuscation Step that encrypts strings
 
+local unpack = unpack or table.unpack;
+
 local Step = require("prometheus.step")
 local Ast = require("prometheus.ast")
 local Scope = require("prometheus.scope")
