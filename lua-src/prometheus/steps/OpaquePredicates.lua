@@ -19,6 +19,8 @@
 -- https://github.com/sfr-development/Clyde-Luau-Obfuscator), reimplemented
 -- from scratch against Prometheus's own AST and Step API.
 
+local unpack = unpack or table.unpack;
+
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
 local visitast = require("prometheus.visitast");
