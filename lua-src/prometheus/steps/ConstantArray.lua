@@ -15,6 +15,7 @@ local util     = require("prometheus.util")
 local Parser   = require("prometheus.parser");
 local enums = require("prometheus.enums")
 local lzw = require("prometheus.lzw");
+local bit32 = require("prometheus.bit").bit32;
 
 local LuaVersion = enums.LuaVersion;
 local AstKind = Ast.AstKind;
@@ -89,6 +90,7 @@ ConstantArray.SettingsDescriptor = {
 		values = {
 			"none",
 			"base64",
+			"xor",
 		},
 	};
 	Compress = {
@@ -347,6 +349,75 @@ function ConstantArray:addDecodeCode(ast)
 	
 		table.insert(ast.body.statements, 1, forStat);
 	end
+
+	if self.Encoding == "xor" and not self.Compress then
+		local xorDecodeCode = [[
+	do ]] .. table.concat(util.shuffle{
+		"local keytabs = KEYTABS;",
+		"local keylen  = #keytabs;",
+		"local strchar = string.char;",
+		"local byte    = string.byte;",
+		"local concat  = table.concat;",
+		"local type    = type;",
+		"local arr     = ARR;",
+	}) .. [[
+		for i = 1, #arr do
+			local data = arr[i];
+			if type(data) == "string" then
+				local len = #data;
+				local parts = {};
+				for j = 1, len do
+					parts[j] = strchar(keytabs[((j - 1) % keylen) + 1][byte(data, j) + 1]);
+				end
+				arr[i] = concat(parts);
+			end
+		end
+	end
+]];
+
+		local parser = Parser:new({
+			LuaVersion = LuaVersion.Lua51;
+		});
+
+		local newAst = parser:parse(xorDecodeCode);
+		local forStat = newAst.body.statements[1];
+		forStat.body.scope:setParent(ast.body.scope);
+
+		visitast(newAst, nil, function(node, data)
+			if(node.kind == AstKind.VariableExpression) then
+				if(node.scope:getVariableName(node.id) == "ARR") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					data.scope:addReferenceToHigherScope(self.rootScope, self.arrId);
+					node.scope = self.rootScope;
+					node.id    = self.arrId;
+				end
+
+				if(node.scope:getVariableName(node.id) == "KEYTABS") then
+					data.scope:removeReferenceToHigherScope(node.scope, node.id);
+					return self:createXorLookup();
+				end
+			end
+		end)
+
+		table.insert(ast.body.statements, 1, forStat);
+	end
+end
+
+function ConstantArray:createXorLookup()
+	-- One 256-entry translation table per key byte, built at compile time
+	-- (using bit32.bxor here, in the obfuscator's own Lua environment - not
+	-- in the generated output). The runtime decoder just does table lookups,
+	-- so the generated script needs no bitwise-op library and stays
+	-- compatible with plain Lua 5.1.
+	local outerEntries = {};
+	for k, keyByte in ipairs(self.xorKey) do
+		local innerEntries = {};
+		for b = 0, 255 do
+			innerEntries[b + 1] = Ast.TableEntry(Ast.NumberExpression(bit32.bxor(b, keyByte)));
+		end
+		outerEntries[k] = Ast.TableEntry(Ast.TableConstructorExpression(innerEntries));
+	end
+	return Ast.TableConstructorExpression(outerEntries);
 end
 
 function ConstantArray:createBase64Lookup()
@@ -447,6 +518,16 @@ function ConstantArray:encode(str)
 			for i=1,6 do c=c+(x:sub(i,i)=='1' and 2^(6-i) or 0) end
 			return self.base64chars:sub(c+1,c+1)
 		end)..({ '', '==', '=' })[#str%3+1]);
+	elseif self.Encoding == "xor" then
+		local key = self.xorKey;
+		local keyLen = #key;
+		local out = {};
+		for i = 1, #str do
+			out[i] = string.char(bit32.bxor(str:byte(i), key[((i - 1) % keyLen) + 1]));
+		end
+		return table.concat(out);
+	elseif self.Encoding == "none" then
+		return str;
 	end
 end
 
@@ -460,6 +541,16 @@ function ConstantArray:apply(ast, pipeline)
 		"0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
 		"+", "/",
 	});
+
+	if self.Encoding == "xor" then
+		-- Random multi-byte key (4-16 bytes), each byte 1-255 (0 would be a
+		-- no-op for that position, so it's excluded).
+		self.xorKey = {};
+		local keyLen = math.random(4, 16);
+		for i = 1, keyLen do
+			self.xorKey[i] = math.random(1, 255);
+		end
+	end
 
 	self.constants = {};
 	self.lookup    = {};
