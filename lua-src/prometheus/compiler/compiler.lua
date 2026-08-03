@@ -5,7 +5,7 @@
 
 -- The max Number of variables used as registers
 local MAX_REGS = 100;
-local MAX_REGS_MUL = 0;
+local MAX_REGS_MUL = 2;
 
 local Compiler = {};
 
@@ -1805,7 +1805,7 @@ function Compiler:compileStatement(statement, funcDepth)
         local statScope;
         repeat
             statScope = statScope and statScope.parentScope or statement.scope;
-            for id, name in ipairs(statScope.variables) do
+            for id, name in pairs(statScope.variables) do
                 table.insert(toFreeVars, {
                     scope = statScope,
                     id = id;
@@ -2138,7 +2138,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
             self:addStatement(self:setRegister(scope, tmpReg, Ast.StringExpression(expression.passSelfFunctionName)), {tmpReg}, {}, false);
             self:addStatement(self:setRegister(scope, tmpReg, Ast.IndexExpression(self:register(scope, baseReg), self:register(scope, tmpReg))), {tmpReg}, {baseReg, tmpReg}, false);
 
-            self:addStatement(self:setRegister(scope, retRegs[1], Ast.FunctionCallExpression(self:register(scope, tmpReg), args)), {retRegs[1]}, {baseReg, unpack(regs)}, true);
+            self:addStatement(self:setRegister(scope, retRegs[1], Ast.FunctionCallExpression(self:register(scope, tmpReg), args)), {retRegs[1]}, {tmpReg, unpack(regs)}, true);
         end
 
         for i, reg in ipairs(regs) do
