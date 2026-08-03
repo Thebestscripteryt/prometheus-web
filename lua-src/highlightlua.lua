@@ -36,11 +36,7 @@ return function(code, luaVersion)
                 out = out .. token.source;
             end
         elseif token.kind == TokenKind.Keyword then
-            if token.source == "nil" then
-                out = out .. colors(token.source, "yellow");
-            else
-                out = out .. colors(token.source, "yellow");
-            end
+            out = out .. colors(token.source, "yellow");
         elseif token.kind == TokenKind.Symbol then
             if nonColorSymbols[token.source] then
                 out = out .. token.source;
