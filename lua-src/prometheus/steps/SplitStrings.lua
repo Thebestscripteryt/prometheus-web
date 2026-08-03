@@ -167,7 +167,7 @@ end
 
 local function generateCustomFunctionLiteral(parentScope, variant)
 	local parser = Parser:new({
-		LuaVersion = LuaVersion.Lua52;
+		LuaVersion = LuaVersion.Lua51;
 	});
 
 	-- Custom Function Type 1
@@ -190,7 +190,7 @@ end
 
 local function generateGlobalCustomFunctionDeclaration(ast, data)
 	local parser = Parser:new({
-		LuaVersion = LuaVersion.Lua52;
+		LuaVersion = LuaVersion.Lua51;
 	});
 	
 	-- Custom Function Type 1
@@ -282,8 +282,12 @@ function SplitStrings:apply(ast, pipeline)
 			local i = 1;
 			
 			-- Split String into Parts of length between MinLength and MaxLength
+			local minLen, maxLen = self.MinLength, self.MaxLength;
+			if minLen > maxLen then
+				minLen, maxLen = maxLen, minLen;
+			end
 			while i <= string.len(str) do
-				local len = math.random(self.MinLength, self.MaxLength);
+				local len = math.random(minLen, maxLen);
 				table.insert(chunks, string.sub(str, i, i + len - 1));
 				i = i + len;
 			end
