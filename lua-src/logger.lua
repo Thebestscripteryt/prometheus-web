@@ -21,7 +21,7 @@ local function eprint(str)
 end
 
 logger.debugCallback = function(...)
-	eprint(colors(config.NameUpper .. ": " ..  ..., "grey"));
+	eprint(colors(config.NameUpper .. ": " .. table.concat({...}), "grey"));
 end;
 function logger:debug(...)
 	if self.logLevel >= self.LogLevel.Debug then
@@ -30,7 +30,7 @@ function logger:debug(...)
 end
 
 logger.logCallback = function(...)
-	eprint(colors(config.NameUpper .. ": ", "magenta") .. ...);
+	eprint(colors(config.NameUpper .. ": ", "magenta") .. table.concat({...}));
 end;
 function logger:log(...)
 	if self.logLevel >= self.LogLevel.Log then
@@ -45,7 +45,7 @@ function logger:info(...)
 end
 
 logger.warnCallback = function(...)
-	eprint(colors(config.NameUpper .. ": " .. ..., "yellow"));
+	eprint(colors(config.NameUpper .. ": " .. table.concat({...}), "yellow"));
 end;
 function logger:warn(...)
 	if self.logLevel >= self.LogLevel.Warn then
@@ -54,7 +54,7 @@ function logger:warn(...)
 end
 
 logger.errorCallback = function(...)
-	eprint(colors(config.NameUpper .. ": " .. ..., "red"))
+	eprint(colors(config.NameUpper .. ": " .. table.concat({...}), "red"))
 	error(...);
 end;
 function logger:error(...)
