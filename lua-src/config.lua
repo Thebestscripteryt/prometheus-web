@@ -9,7 +9,7 @@ local REVISION = "Alpha";
 local VERSION = "v0.2";
 local BY      = "levno-710";
 
-for _, currArg in pairs(arg) do
+for _, currArg in pairs(arg or {}) do
 	if currArg == "--CI" then
 		local releaseName = string.gsub(string.format("%s %s %s", NAME, REVISION, VERSION), "%s", "-")
 		print(releaseName)
