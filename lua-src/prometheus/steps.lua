@@ -12,4 +12,5 @@ return {
 	OpaquePredicates     = require("prometheus.steps.OpaquePredicates");
 	JunkCodeInsertion    = require("prometheus.steps.JunkCodeInsertion");
 	MethodCallToIndex    = require("prometheus.steps.MethodCallToIndex");
+	ConditionInverter    = require("prometheus.steps.ConditionInverter");
 }
