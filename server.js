@@ -17,24 +17,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 *
 
 const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
-// Heavier presets (Vmify in particular compiles the whole script into a
-// custom bytecode VM) can legitimately take much longer than lighter
-// presets, even for small inputs. Give each preset its own budget instead
-// of a single one-size-fits-all timeout.
-const PRESET_TIMEOUTS_MS = {
-  Minify: 15000,
-  Weak: 20000,
-  Medium: 30000,
-  Strong: 45000,
-  Ultra: 90000,
-};
-
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
-function extractCleanError(rawStderr, rawStdout, fallbackMessage, timedOut) {
-  if (timedOut) {
-    return "Obfuscation timed out before finishing. The selected preset (especially Ultra, which compiles your script into a custom bytecode VM) can take a while on larger scripts — try a lighter preset like Strong or Medium, or shorten the script.";
-  }
+function extractCleanError(rawStderr, rawStdout, fallbackMessage) {
   const raw = (rawStderr || rawStdout || fallbackMessage || "Obfuscation failed.").toString();
   const clean = raw.replace(ANSI_PATTERN, "");
 
@@ -50,24 +35,33 @@ function extractCleanError(rawStderr, rawStdout, fallbackMessage, timedOut) {
     }
   }
 
-  // Fall back to the first non-stack-trace looking line.
-  const firstUseful = lines.find((l) => !l.startsWith("stack traceback") && !l.startsWith("[C]:") && !l.startsWith("./") && !/:\d+:\s*in function/.test(l));
-  return firstUseful || lines[0] || "Obfuscation failed.";
+  // Fall back to the last non-stack-trace looking line - the real crash
+  // message (whether or not it happens to be PROMETHEUS-prefixed, and
+  // whether or not it contains the word "error") is printed right before
+  // the stack traceback begins, not at the start of the output. Searching
+  // from the start would instead grab an early, harmless progress message
+  // like "PROMETHEUS: Applying Obfuscation Pipeline to ...".
+  const isTraceLine = (l) =>
+    l.startsWith("stack traceback") || l.startsWith("[C]:") || l.startsWith("./") || /:\d+:\s*in function/.test(l);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!isTraceLine(lines[i])) {
+      return lines[i];
+    }
+  }
+  return lines[0] || "Obfuscation failed.";
 }
 
 function runObfuscation(sourceCode, preset) {
   return new Promise((resolve, reject) => {
     const args = ["prometheus-main.lua", "--preset", preset, "--out", "-", "-"];
-    const timeoutMs = PRESET_TIMEOUTS_MS[preset] || 30000;
 
     const child = execFile(
       LUA_BIN,
       args,
-      { cwd: LUA_SRC_DIR, timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 },
+      { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
-          const timedOut = Boolean(err.killed || err.signal === "SIGTERM");
-          return reject(new Error(extractCleanError(stderr, stdout, err.message, timedOut)));
+          return reject(new Error(extractCleanError(stderr, stdout, err.message)));
         }
         if (!stdout) {
           return reject(new Error(extractCleanError(stderr, stdout, "Obfuscator did not produce output.")));
