@@ -1,9 +1,3 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- compiler.lua
--- This Script contains the new Compiler
-
--- The max Number of variables used as registers
 local MAX_REGS = 100;
 local MAX_REGS_MUL = 2;
 
@@ -33,7 +27,7 @@ function Compiler:new()
         registerVars = {};
 
         VAR_REGISTER = newproxy(false);
-        RETURN_ALL = newproxy(false); 
+        RETURN_ALL = newproxy(false);
         POS_REGISTER = newproxy(false);
         RETURN_REGISTER = newproxy(false);
         UPVALUE = newproxy(false);
@@ -86,7 +80,7 @@ function Compiler:setActiveBlock(block)
 end
 
 function Compiler:addStatement(statement, writes, reads, usesUpvals)
-    if(self.activeBlock.advanceToNextBlock) then  
+    if(self.activeBlock.advanceToNextBlock) then
         table.insert(self.activeBlock.statements, {
             statement = statement,
             writes = lookupify(writes),
@@ -124,7 +118,7 @@ function Compiler:compile(ast)
     local _, getmetatableVar = newGlobalScope:resolve("getmetatable");
     local _, selectVar = newGlobalScope:resolve("select");
     local _, tostringVar = newGlobalScope:resolve("tostring");
-    
+
     psc:addReferenceToHigherScope(newGlobalScope, getfenvVar, 2);
     psc:addReferenceToHigherScope(newGlobalScope, tableVar);
     psc:addReferenceToHigherScope(newGlobalScope, unpackVar);
@@ -156,13 +150,11 @@ function Compiler:compile(ast)
     self.detectGcCollectVar = self.containerFuncScope:addVariable();
     self.returnVar  = self.containerFuncScope:addVariable();
 
-    -- Upvalues Handling
     self.upvaluesTable = self.scope:addVariable();
     self.upvaluesReferenceCountsTable = self.scope:addVariable();
     self.allocUpvalFunction = self.scope:addVariable();
     self.currentUpvalId = self.scope:addVariable();
 
-    -- Gc Handling for Upvalues
     self.upvaluesProxyFunctionVar = self.scope:addVariable();
     self.upvaluesGcFunctionVar = self.scope:addVariable();
     self.freeUpvalueFunc = self.scope:addVariable();
@@ -196,14 +188,12 @@ function Compiler:compile(ast)
         return uid;
     end
 
-    -- Reference to Higher Scopes
     createClosureSubScope:addReferenceToHigherScope(self.scope, self.containerFuncVar);
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosurePosArg)
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosureUpvalsArg, 1)
     createClosureScope:addReferenceToHigherScope(self.scope, self.upvaluesProxyFunctionVar)
     createClosureSubScope:addReferenceToHigherScope(createClosureScope, createClosureProxyObject);
 
-    -- Invoke Compiler
     self:compileTopNode(ast);
 
     local functionNodeAssignments = {
@@ -238,7 +228,7 @@ function Compiler:compile(ast)
                                 Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.containerFuncVar), {
                                     Ast.VariableExpression(createClosureScope, createClosurePosArg),
                                     Ast.TableConstructorExpression({Ast.TableEntry(Ast.VarargExpression())}),
-                                    Ast.VariableExpression(createClosureScope, createClosureUpvalsArg), -- Upvalues
+                                    Ast.VariableExpression(createClosureScope, createClosureUpvalsArg),
                                     Ast.VariableExpression(createClosureScope, createClosureProxyObject)
                                 })
                             }
@@ -295,7 +285,6 @@ function Compiler:compile(ast)
         assignmentStatRhs[i] = v.val;
     end
 
-    -- Emit Code
     local functionNode = Ast.FunctionLiteralExpression({
         Ast.VariableExpression(self.scope, self.envVar),
         Ast.VariableExpression(self.scope, self.unpackVar),
@@ -335,7 +324,7 @@ function Compiler:getCreateClosureVar(argCount)
         local var = Ast.AssignmentVariable(self.scope, self.scope:addVariable());
         local createClosureScope = Scope:new(self.scope);
         local createClosureSubScope = Scope:new(createClosureScope);
-        
+
         local createClosurePosArg = createClosureScope:addVariable();
         local createClosureUpvalsArg = createClosureScope:addVariable();
         local createClosureProxyObject = createClosureScope:addVariable();
@@ -372,7 +361,7 @@ function Compiler:getCreateClosureVar(argCount)
                             Ast.FunctionCallExpression(Ast.VariableExpression(self.scope, self.containerFuncVar), {
                                 Ast.VariableExpression(createClosureScope, createClosurePosArg),
                                 Ast.TableConstructorExpression(argsTb2),
-                                Ast.VariableExpression(createClosureScope, createClosureUpvalsArg), -- Upvalues
+                                Ast.VariableExpression(createClosureScope, createClosureUpvalsArg),
                                 Ast.VariableExpression(createClosureScope, createClosureProxyObject)
                             })
                         }
@@ -388,7 +377,6 @@ function Compiler:getCreateClosureVar(argCount)
         }
     end
 
-    
     local var = self.createClosureVars[argCount].var;
     return var.scope, var.id;
 end
@@ -423,7 +411,6 @@ function Compiler:createUpvaluesGcFunc()
     local ifScope = Scope:new(whileScope);
     ifScope:addReferenceToHigherScope(self.scope, self.upvaluesReferenceCountsTable, 1);
     ifScope:addReferenceToHigherScope(self.scope, self.upvaluesTable, 1);
-    
 
     return Ast.FunctionLiteralExpression({Ast.VariableExpression(scope, selfVar)}, Ast.Block({
         Ast.LocalVariableDeclaration(scope, {iteratorVar, valueVar}, {Ast.NumberExpression(1), Ast.IndexExpression(Ast.VariableExpression(scope, selfVar), Ast.NumberExpression(1))}),
@@ -586,7 +573,6 @@ function Compiler:emitContainerFuncBody()
         local id = block.id;
         local blockstats = block.statements;
 
-        -- Shuffle Blockstats
         for i = 2, #blockstats do
             local stat = blockstats[i];
             local reads = stat.reads;
@@ -678,7 +664,7 @@ function Compiler:emitContainerFuncBody()
 
     self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.returnVar, 1);
     self.whileScope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
- 
+
     self.containerFuncScope:addReferenceToHigherScope(self.scope, self.unpackVar);
 
     local declarations = {
@@ -730,26 +716,30 @@ function Compiler:allocRegister(isVar)
     self.usedRegisters = self.usedRegisters + 1;
 
     if not isVar then
-        -- POS register can be temporarily used
+
         if not self.registers[self.POS_REGISTER] then
             self.registers[self.POS_REGISTER] = true;
             return self.POS_REGISTER;
         end
 
-        -- RETURN register can be temporarily used
         if not self.registers[self.RETURN_REGISTER] then
             self.registers[self.RETURN_REGISTER] = true;
             return self.RETURN_REGISTER;
         end
     end
-    
 
     local id = 0;
+    local usedRandomPick = false;
     if self.usedRegisters < MAX_REGS * MAX_REGS_MUL then
+        local attempts = 0;
         repeat
             id = math.random(1, MAX_REGS - 1);
-        until not self.registers[id];
-    else
+            attempts = attempts + 1;
+        until not self.registers[id] or attempts > MAX_REGS;
+        usedRandomPick = not self.registers[id];
+    end
+    if not usedRandomPick then
+        id = 0;
         repeat
             id = id + 1;
         until not self.registers[id];
@@ -806,7 +796,6 @@ function Compiler:getRegisterVarId(id)
     return varId;
 end
 
--- Maybe convert ids to strings
 function Compiler:register(scope, id)
     if id == self.POS_REGISTER then
         return self:pos(scope);
@@ -854,7 +843,6 @@ function Compiler:registerAssignment(scope, id)
     return Ast.AssignmentIndexing(Ast.VariableExpression(self.containerFuncScope, vid), Ast.NumberExpression((id - MAX_REGS) + 1));
 end
 
--- Maybe convert ids to strings
 function Compiler:setRegister(scope, id, val, compundArg)
     if(compundArg) then
         return compundArg(self:registerAssignment(scope, id), val);
@@ -915,14 +903,6 @@ function Compiler:unpack(scope)
     return Ast.VariableExpression(self.scope, self.unpackVar);
 end
 
--- Packs all values produced by exprList into a table, evaluating each expression
--- exactly once. If the last expression in exprList is itself a call (or "...") it
--- may contribute more than one value, following normal Lua call-argument semantics.
--- Unlike a plain `{ ... }` table constructor, this also records the true number of
--- values (via select('#', ...)) under the "n" key, since Lua's `#` operator is
--- unreliable once a table has a nil hole (e.g. a trailing nil return value).
--- Callers MUST use this recorded "n" (not `#`) when later unpacking, or trailing
--- nil values will silently be dropped.
 function Compiler:packAll(scope, exprList)
     scope:addReferenceToHigherScope(self.scope, self.selectVar);
     local innerScope = Scope:new(scope);
@@ -942,9 +922,6 @@ function Compiler:packAll(scope, exprList)
     );
 end
 
--- Unpacks a table (held in register `reg`) produced by packAll, using its recorded
--- "n" count rather than `#`, so trailing nil return values are correctly forwarded
--- instead of silently dropped.
 function Compiler:unpackAll(scope, reg)
     scope:addReferenceToHigherScope(self.scope, self.unpackVar);
     return Ast.FunctionCallExpression(self:unpack(scope), {
@@ -966,8 +943,8 @@ end
 
 function Compiler:setPos(scope, val)
     if not val then
-       
-        local v =  Ast.IndexExpression(self:env(scope), randomStrings.randomStringNode(math.random(12, 14))); --Ast.NilExpression();
+
+        local v =  Ast.IndexExpression(self:env(scope), randomStrings.randomStringNode(math.random(12, 14)));
         scope:addReferenceToHigherScope(self.containerFuncScope, self.posVar);
         return Ast.AssignmentStatement({Ast.AssignmentVariable(self.containerFuncScope, self.posVar)}, {v});
     end
@@ -1004,7 +981,7 @@ function Compiler:getUpvalueMember(scope, idExpr)
 end
 
 function Compiler:compileTopNode(node)
-    -- Create Initial Block
+
     local startBlock = self:createBlock();
     local scope = startBlock.scope;
     self.startBlockId = startBlock.id;
@@ -1023,8 +1000,8 @@ function Compiler:compileTopNode(node)
         AstKind.FunctionLiteralExpression,
         AstKind.TopNode,
     }
-    -- Collect Upvalues
-    visitast(node, function(node, data) 
+
+    visitast(node, function(node, data)
         if node.kind == AstKind.Block then
             node.scope.__depth = data.functionData.depth;
         end
@@ -1046,7 +1023,6 @@ function Compiler:compileTopNode(node)
     scope:addReferenceToHigherScope(self.scope, self.unpackVar);
     self:addStatement(self:setRegister(scope, self.varargReg, Ast.VariableExpression(self.containerFuncScope, self.argsVar)), {self.varargReg}, {}, false);
 
-    -- Compile Block
     self:compileBlock(node.body, 0);
     if(self.activeBlock.advanceToNextBlock) then
         self:addStatement(self:setPos(self.activeBlock.scope, nil), {self.POS_REGISTER}, {}, false);
@@ -1145,7 +1121,7 @@ function Compiler:compileFunction(node, funcDepth)
     self:setActiveBlock(oldActiveBlock);
 
     local scope = self.activeBlock.scope;
-    
+
     local retReg = self:allocRegister(false);
 
     local isVarargFunction = #node.args > 0 and node.args[#node.args].kind == AstKind.VarargExpression;
@@ -1192,7 +1168,7 @@ end
 
 function Compiler:compileStatement(statement, funcDepth)
     local scope = self.activeBlock.scope;
-    -- Return Statement
+
     if(statement.kind == AstKind.ReturnStatement) then
         local exprList = {};
         local regs = {};
@@ -1219,7 +1195,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Local Variable Declaration
     if(statement.kind == AstKind.LocalVariableDeclaration) then
         local exprregs = {};
         for i, expr in ipairs(statement.expressions) do
@@ -1266,7 +1241,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Function Call Statement
     if(statement.kind == AstKind.FunctionCallStatement) then
         local baseReg = self:compileExpression(statement.base, funcDepth, 1)[1];
         local retReg  = self:allocRegister(false);
@@ -1291,11 +1265,10 @@ function Compiler:compileStatement(statement, funcDepth)
         for i, reg in ipairs(regs) do
             self:freeRegister(reg, false);
         end
-        
+
         return;
     end
 
-    -- Pass Self Function Call Statement
     if(statement.kind == AstKind.PassSelfFunctionCallStatement) then
         local baseReg = self:compileExpression(statement.base, funcDepth, 1)[1];
         local tmpReg  = self:allocRegister(false);
@@ -1322,13 +1295,12 @@ function Compiler:compileStatement(statement, funcDepth)
         for i, reg in ipairs(regs) do
             self:freeRegister(reg, false);
         end
-        
+
         return;
     end
 
-    -- Local Function Declaration
     if(statement.kind == AstKind.LocalFunctionDeclaration) then
-        
+
         if(self:isUpvalue(statement.scope, statement.id)) then
             local varReg = self:getVarRegister(statement.scope, statement.id, funcDepth, nil);
             scope:addReferenceToHigherScope(self.scope, self.allocUpvalFunction);
@@ -1345,7 +1317,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Function Declaration
     if(statement.kind == AstKind.FunctionDeclaration) then
         local retReg = self:compileFunction(statement, funcDepth);
         if(#statement.indices > 0) then
@@ -1421,7 +1392,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
      end
 
-    -- Assignment Statement
     if(statement.kind == AstKind.AssignmentStatement) then
         local exprregs = {};
         local assignmentIndexingRegs = {};
@@ -1503,7 +1473,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return
     end
 
-    -- If Statement
     if(statement.kind == AstKind.IfStatement) then
         local conditionReg = self:compileExpression(statement.condition, funcDepth, 1)[1];
         local finalBlock = self:createBlock();
@@ -1517,7 +1486,7 @@ function Compiler:compileStatement(statement, funcDepth)
         local innerBlock = self:createBlock();
 
         self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, conditionReg), Ast.NumberExpression(innerBlock.id)), Ast.NumberExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
-        
+
         self:freeRegister(conditionReg, false);
 
         self:setActiveBlock(innerBlock);
@@ -1536,7 +1505,7 @@ function Compiler:compileStatement(statement, funcDepth)
             end
             local scope = self.activeBlock.scope;
             self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.OrExpression(Ast.AndExpression(self:register(scope, conditionReg), Ast.NumberExpression(innerBlock.id)), Ast.NumberExpression(nextBlock.id))), {self.POS_REGISTER}, {conditionReg}, false);
-        
+
             self:freeRegister(conditionReg, false);
 
             self:setActiveBlock(innerBlock);
@@ -1556,13 +1525,11 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Do Statement
     if(statement.kind == AstKind.DoStatement) then
         self:compileBlock(statement.body, funcDepth);
         return;
     end
 
-    -- While Statement
     if(statement.kind == AstKind.WhileStatement) then
         local innerBlock = self:createBlock();
         local finalBlock = self:createBlock();
@@ -1587,7 +1554,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Repeat Statement
     if(statement.kind == AstKind.RepeatStatement) then
         local innerBlock = self:createBlock();
         local finalBlock = self:createBlock();
@@ -1614,7 +1580,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- For Statement
     if(statement.kind == AstKind.ForStatement) then
         local checkBlock = self:createBlock();
         local innerBlock = self:createBlock();
@@ -1641,7 +1606,7 @@ function Compiler:compileStatement(statement, funcDepth)
         local tmpReg = self:allocRegister(false);
         self:addStatement(self:setRegister(scope, tmpReg, Ast.NumberExpression(0)), {tmpReg}, {}, false);
         local incrementIsNegReg = self:allocRegister(false);
-        self:addStatement(self:setRegister(scope, incrementIsNegReg, Ast.LessThanExpression(self:register(scope, incrementReg), self:register(scope, tmpReg))), {incrementIsNegReg}, {incrementReg, tmpReg}, false);     
+        self:addStatement(self:setRegister(scope, incrementIsNegReg, Ast.LessThanExpression(self:register(scope, incrementReg), self:register(scope, tmpReg))), {incrementIsNegReg}, {incrementReg, tmpReg}, false);
         self:freeRegister(tmpReg);
 
         local currentReg = self:allocRegister(true);
@@ -1685,10 +1650,9 @@ function Compiler:compileStatement(statement, funcDepth)
             self:addStatement(self:setRegister(scope, varReg, self:register(scope, currentReg)), {varReg}, {currentReg}, false);
         end
 
-        
         self:compileBlock(statement.body, funcDepth);
         self:addStatement(self:setRegister(scope, self.POS_REGISTER, Ast.NumberExpression(checkBlock.id)), {self.POS_REGISTER}, {}, false);
-        
+
         self.registers[self.POS_REGISTER] = self.VAR_REGISTER;
         self:freeRegister(finalReg);
         self:freeRegister(incrementIsNegReg);
@@ -1701,7 +1665,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- For In Statement
     if(statement.kind == AstKind.ForInStatement) then
         local expressionsLength = #statement.expressions;
         local exprregs = {};
@@ -1769,7 +1732,6 @@ function Compiler:compileStatement(statement, funcDepth)
             self:addStatement(self:setRegister(scope, varRegs[i], Ast.NilExpression()), {varRegs[i]}, {}, false);
         end
 
-        -- Upvalue fix
         for i, id in ipairs(statement.ids) do
             if(self:isUpvalue(statement.scope, id)) then
                 local varreg = varRegs[i];
@@ -1793,13 +1755,11 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Do Statement
     if(statement.kind == AstKind.DoStatement) then
         self:compileBlock(statement.body, funcDepth);
         return;
     end
 
-    -- Break Statement
     if(statement.kind == AstKind.BreakStatement) then
         local toFreeVars = {};
         local statScope;
@@ -1831,7 +1791,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Continue Statement
     if(statement.kind == AstKind.ContinueStatement) then
         local toFreeVars = {};
         local statScope;
@@ -1863,7 +1822,6 @@ function Compiler:compileStatement(statement, funcDepth)
         return;
     end
 
-    -- Compound Statements
     local compoundConstructors = {
         [AstKind.CompoundAddStatement] = Ast.CompoundAddStatement,
         [AstKind.CompoundSubStatement] = Ast.CompoundSubStatement,
@@ -1918,7 +1876,6 @@ end
 function Compiler:compileExpression(expression, funcDepth, numReturns)
     local scope = self.activeBlock.scope;
 
-    -- String Expression
     if(expression.kind == AstKind.StringExpression) then
         local regs = {};
         for i=1, numReturns, 1 do
@@ -1932,9 +1889,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- LuaU Interpolated String Expression: compile as a runtime concatenation of
-    -- the literal chunks (as StringExpressions) and tostring(...)'d sub-expressions,
-    -- reusing the existing StrCatExpression compilation path (via BIN_OPS).
     if(expression.kind == AstKind.InterpolatedStringExpression) then
         local concatNode = nil;
         for _, part in ipairs(expression.parts) do
@@ -1956,7 +1910,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return self:compileExpression(concatNode, funcDepth, numReturns);
     end
 
-    -- Number Expression
     if(expression.kind == AstKind.NumberExpression) then
         local regs = {};
         for i=1, numReturns do
@@ -1970,7 +1923,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- Boolean Expression
     if(expression.kind == AstKind.BooleanExpression) then
         local regs = {};
         for i=1, numReturns do
@@ -1984,7 +1936,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- Nil Expression
     if(expression.kind == AstKind.NilExpression) then
         local regs = {};
         for i=1, numReturns do
@@ -1994,20 +1945,19 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- Variable Expression
     if(expression.kind == AstKind.VariableExpression) then
         local regs = {};
         for i=1, numReturns do
             if(i == 1) then
                 if(expression.scope.isGlobal) then
-                    -- Global Variable
+
                     regs[i] = self:allocRegister(false);
                     local tmpReg = self:allocRegister(false);
                     self:addStatement(self:setRegister(scope, tmpReg, Ast.StringExpression(expression.scope:getVariableName(expression.id))), {tmpReg}, {}, false);
                     self:addStatement(self:setRegister(scope, regs[i], Ast.IndexExpression(self:env(scope), self:register(scope, tmpReg))), {regs[i]}, {tmpReg}, true);
                     self:freeRegister(tmpReg, false);
                 else
-                    -- Local Variable
+
                     if(self.scopeFunctionDepths[expression.scope] == funcDepth) then
                         if self:isUpvalue(expression.scope, expression.id) then
                             local reg = self:allocRegister(false);
@@ -2033,7 +1983,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- Function Call Expression
     if(expression.kind == AstKind.FunctionCallExpression) then
         local baseReg = self:compileExpression(expression.base, funcDepth, 1)[1];
 
@@ -2046,7 +1995,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
                 retRegs[i] = self:allocRegister(false);
             end
         end
-        
+
         local regs = {};
         local args = {};
         for i, expr in ipairs(expression.args) do
@@ -2066,13 +2015,13 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         else
             if(numReturns > 1) then
                 local tmpReg = self:allocRegister(false);
-    
+
                 self:addStatement(self:setRegister(scope, tmpReg, self:packAll(scope, {Ast.FunctionCallExpression(self:register(scope, baseReg), args)})), {tmpReg}, {baseReg, unpack(regs)}, true);
-    
+
                 for i, reg in ipairs(retRegs) do
                     self:addStatement(self:setRegister(scope, reg, Ast.IndexExpression(self:register(scope, tmpReg), Ast.NumberExpression(i))), {reg}, {tmpReg}, false);
                 end
-    
+
                 self:freeRegister(tmpReg, false);
             else
                 self:addStatement(self:setRegister(scope, retRegs[1], Ast.FunctionCallExpression(self:register(scope, baseReg), args)), {retRegs[1]}, {baseReg, unpack(regs)}, true);
@@ -2083,11 +2032,10 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         for i, reg in ipairs(regs) do
             self:freeRegister(reg, false);
         end
-        
+
         return retRegs;
     end
 
-    -- Pass Self Function Call Expression
     if(expression.kind == AstKind.PassSelfFunctionCallExpression) then
         local baseReg = self:compileExpression(expression.base, funcDepth, 1)[1];
         local retRegs  = {};
@@ -2144,11 +2092,10 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         for i, reg in ipairs(regs) do
             self:freeRegister(reg, false);
         end
-        
+
         return retRegs;
     end
 
-    -- Index Expression
     if(expression.kind == AstKind.IndexExpression) then
         local regs = {};
         for i=1, numReturns do
@@ -2167,7 +2114,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    -- Binary Operations
     if(self.BIN_OPS[expression.kind]) then
         local regs = {};
         for i=1, numReturns do
@@ -2234,7 +2180,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    if(expression.kind == AstKind.OrExpression) then      
+    if(expression.kind == AstKind.OrExpression) then
         local posState = self.registers[self.POS_REGISTER];
         self.registers[self.POS_REGISTER] = self.VAR_REGISTER;
 
@@ -2293,7 +2239,7 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
         return regs;
     end
 
-    if(expression.kind == AstKind.AndExpression) then      
+    if(expression.kind == AstKind.AndExpression) then
         local posState = self.registers[self.POS_REGISTER];
         self.registers[self.POS_REGISTER] = self.VAR_REGISTER;
 
@@ -2313,7 +2259,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
             self:addStatement(self:copyRegisters(scope, {tmpReg}, {self.POS_REGISTER}), {tmpReg}, {self.POS_REGISTER}, false);
         end
 
-       
         local lhsReg = self:compileExpression(expression.lhs, funcDepth, 1)[1];
         if(expression.rhs.isConstant) then
             local rhsReg = self:compileExpression(expression.rhs, funcDepth, 1)[1];
@@ -2325,7 +2270,6 @@ function Compiler:compileExpression(expression, funcDepth, numReturns)
             self:freeRegister(rhsReg, false)
             return regs;
         end
-
 
         local block1, block2 = self:createBlock(), self:createBlock();
         self:addStatement(self:copyRegisters(scope, {resReg}, {lhsReg}), {resReg}, {lhsReg}, false);
