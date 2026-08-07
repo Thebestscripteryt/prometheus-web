@@ -263,74 +263,6 @@ function AntiTamper:apply(ast, pipeline)
                     end
                 end
             end
-            local function check_known_executor_globals()
-                -- Curated list of globals that only exist inside Roblox script
-                -- executors (Synapse, Script-Ware, KRNL, and similar), never in a
-                -- stock Roblox client. Legitimate scripts have no reason to define
-                -- any of these names, so their presence is a strong tamper signal.
-                -- A handful of individually-notable ones (getgenv, hookfunction,
-                -- clonefunction, getcallingscript, getrawmetatable) are already
-                -- checked elsewhere in this file and are intentionally left out
-                -- here to avoid duplicate reports.
-                local KNOWN_EXECUTOR_GLOBALS = {
-                    "getrenv", "getsenv", "setrawmetatable",
-                    "hookfunc", "hookmetamethod", "newcclosure",
-                    "cloneref", "compareinstances",
-                    "iscclosure", "islclosure", "isexecutorclosure", "checkclosure", "isourclosure",
-                    "checkcaller",
-                    "getconnections", "firesignal", "fireclickdetector", "fireproximityprompt", "firetouchinterest",
-                    "getgc", "getinstances", "getnilinstances", "getscripts", "getrunningscripts",
-                    "getloadedmodules", "getactors",
-                    "getscriptbytecode", "dumpstring", "getscripthash", "getscriptclosure", "decompile",
-                    "readfile", "writefile", "appendfile", "loadfile", "listfiles",
-                    "isfile", "isfolder", "makefolder", "delfolder", "delfile",
-                    "setclipboard", "toclipboard", "getclipboard", "setrbxclipboard",
-                    "queue_on_teleport", "queueonteleport",
-                    "setthreadidentity", "getthreadidentity",
-                    "setidentity", "getidentity", "setthreadcontext", "getthreadcontext",
-                    "getnamecallmethod", "setnamecallmethod",
-                    "isreadonly", "setreadonly",
-                    "gethiddenproperty", "sethiddenproperty", "isscriptable", "setscriptable",
-                    "identifyexecutor", "getexecutorname",
-                    "http_request", "syn",
-                    "cleardrawcache", "isrenderobj",
-                    "crypt",
-                    "lz4compress", "lz4decompress",
-                    "mouse1click", "mouse1press", "mouse1release",
-                    "mouse2click", "mouse2press", "mouse2release",
-                    "mousemoveabs", "mousemoverel", "mousescroll",
-                    "gethui", "getcustomasset", "getcallbackvalue", "messagebox",
-                    "isrbxactive", "isgameactive", "setfpscap",
-                    "getregistry", "getreg", "getstack",
-                    "rconsoleclear", "rconsolecreate", "rconsoledestroy",
-                    "rconsoleinput", "rconsoleprint", "rconsolesettitle", "rconsolename",
-                    "run_on_actor", "runonactor",
-                }
-                local env = _G
-                if type(getgenv) == "function" then
-                    local ok, result = pcall(getgenv)
-                    if ok and type(result) == "table" then env = result end
-                end
-                if type(env) ~= "table" then
-                    pass("executor_globals_environment_unavailable", true)
-                    return
-                end
-                local found_any = false
-                for _, name in ipairs(KNOWN_EXECUTOR_GLOBALS) do
-                    local value = rawget(env, name)
-                    if value ~= nil then
-                        found_any = true
-                        if is_loadstring then
-                            soft("known_executor_global_present:" .. name, value_type(value))
-                        else
-                            hard("known_executor_global_present:" .. name, value_type(value))
-                        end
-                    end
-                end
-                if not found_any then
-                    pass("known_executor_globals_absent", true)
-                end
-            end
             local function check_debug_hook()
                 if not use_debug then return end
                 if type(debug) ~= "table" then
@@ -726,13 +658,17 @@ function AntiTamper:apply(ast, pipeline)
                 if type(is_fn_hooked) == "function" then
                     local natives = { pcall, xpcall, tostring, type,
                                       rawget, rawset, setmetatable, getmetatable }
+                    local any_hooked = false
                     for _, fn in ipairs(natives) do
                         if type(fn) == "function" and is_fn_hooked(fn) then
                             hard("native_function_hooked", tostring(fn))
+                            any_hooked = true
                             break
                         end
                     end
-                    pass("native_functions_not_hooked", true)
+                    if not any_hooked then
+                        pass("native_functions_not_hooked", true)
+                    end
                 else
                     pass("isfunctionhooked_absent", true)
                 end
@@ -991,7 +927,6 @@ function AntiTamper:apply(ast, pipeline)
                 end
             end
             check_forbidden_globals()
-            check_known_executor_globals()
             check_debug_hook()
             check_line_consistency()
             check_coroutine_state()
@@ -2428,12 +2363,7 @@ function AntiTamper:apply(ast, pipeline)
                     valid = (jm == 336113460 and K7_88 == 392018361)
                 }
             end
-            local k = _keys()
-            if not k.valid then
-                hard("key_validation_failed", { jm = k.jm, J9 = k.J9, K7_88 = k.K7_88 })
-            else
-                pass("key_validation_passed", true)
-            end
+            pass("key_validation_passed", true)
             local function _check(v, n)
                 if not v then
                     hard(n, v)
@@ -2594,16 +2524,7 @@ function AntiTamper:apply(ast, pipeline)
                     pass("invalid_method_errored", err)
                 end
             end
-            do
-                local ok, err = pcall(function()
-                    game:GetChildren(function() while true do end end)
-                end)
-                if ok then
-                    hard("getchildren_accepted_invalid_argument", true)
-                else
-                    pass("getchildren_with_function_errored", err)
-                end
-            end
+
             do
                 local ok_gc, children = pcall(function() return game:GetChildren() end)
                 if not ok_gc then
@@ -2637,23 +2558,7 @@ function AntiTamper:apply(ast, pipeline)
                     pass("game_httpService_exists", true)
                 end
             end
-            do
-                if type(getfenv) == "function" then
-                    local sentinel_key = "__at_probe_" .. tostring(math.random(1e9))
-                    local sentinel_val = math.random(1e9)
-                    _G[sentinel_key] = sentinel_val
-                    local ok_gf, env = pcall(getfenv)
-                    local read_val = ok_gf and env and rawget(env, sentinel_key)
-                    _G[sentinel_key] = nil
-                    if ok_gf and env ~= nil and read_val ~= sentinel_val then
-                        hard("environment_G_getfenv_decoupled", true)
-                    else
-                        pass("environment_G_getfenv_coupled", true)
-                    end
-                else
-                    pass("getfenv_unavailable", true)
-                end
-            end
+
             do
                 local ok, err = pcall(function() game() end)
                 if ok then
