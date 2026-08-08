@@ -325,7 +325,30 @@ print(`Hello {name}`)"></textarea>
     inputLen.textContent = input.value.length.toLocaleString() + " chars";
   });
 
-  async function obfuscate() {
+  async function obfuscateRequest() {
+    const code = input.value;
+    const res = await fetch("/api/obfuscate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, preset: selectedPreset }),
+    });
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      // The server responded, but not with JSON - most likely Render's
+      // free-tier cold-start loading page (plain HTML) served while the
+      // real process is still spinning up after 15+ minutes of inactivity.
+      const err = new Error("COLD_START");
+      err.isColdStart = true;
+      throw err;
+    }
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Unknown error");
+    return data;
+  }
+
+  async function obfuscate(isRetry) {
     const code = input.value;
     if (!code.trim()) {
       statusEl.textContent = "Paste a script first.";
@@ -334,20 +357,27 @@ print(`Hello {name}`)"></textarea>
     }
 
     runBtn.disabled = true;
-    statusEl.textContent = "Obfuscating…";
-    statusEl.className = "status busy";
     output.classList.remove("empty");
     output.textContent = "";
 
     try {
-      const res = await fetch("/api/obfuscate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, preset: selectedPreset }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.error || "Unknown error");
+      let data;
+      try {
+        statusEl.textContent = "Obfuscating…";
+        statusEl.className = "status busy";
+        data = await obfuscateRequest();
+      } catch (err) {
+        if (err.isColdStart && !isRetry) {
+          statusEl.textContent = "Server is waking up (this can take up to a minute on first use) — retrying…";
+          statusEl.className = "status busy";
+          await new Promise((r) => setTimeout(r, 6000));
+          data = await obfuscateRequest();
+        } else if (err.isColdStart) {
+          throw new Error("Server is still waking up. Please wait a few seconds and click Obfuscate again.");
+        } else {
+          throw err;
+        }
+      }
 
       output.textContent = data.output;
       statusEl.textContent = `Done — ${data.output.length.toLocaleString()} chars output`;
@@ -362,7 +392,7 @@ print(`Hello {name}`)"></textarea>
     }
   }
 
-  runBtn.addEventListener("click", obfuscate);
+  runBtn.addEventListener("click", () => obfuscate(false));
 
   copyBtn.addEventListener("click", () => {
     if (!output.textContent || output.classList.contains("empty")) return;
