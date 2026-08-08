@@ -1,11 +1,4 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- ConstantArray.lua
---
--- This Script provides a Simple Obfuscation Step that wraps the entire Script into a function
 
--- TODO: Wrapper Functions
--- TODO: Proxy Object for indexing: e.g: ARR[X] becomes ARR + X
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -109,19 +102,14 @@ local function callNameGenerator(generatorFunction, ...)
 end
 
 function ConstantArray:init(settings)
-	
+
 end
 
--- Builds a length-prefixed blob from a list of strings (in order), so they
--- can be losslessly split back apart later regardless of their content
--- (including embedded null bytes or anything else - length prefixes make
--- this unambiguous, unlike a delimiter-based scheme).
 local function buildLengthPrefixedBlob(strings)
 	local parts = {};
 	for i, s in ipairs(strings) do
 		local len = #s;
-		-- 4-byte big-endian length prefix; strings extracted from real
-		-- scripts are never going to approach 4GB.
+
 		parts[#parts + 1] = string.char(
 			math.floor(len / 16777216) % 256,
 			math.floor(len / 65536) % 256,
@@ -136,7 +124,7 @@ end
 function ConstantArray:createArray()
 	if self.Compress then
 		local stringValues = {};
-		local stringPositions = {}; -- constants-array index -> 1-based position within stringValues
+		local stringPositions = {};
 		for i, v in ipairs(self.constants) do
 			if type(v) == "string" then
 				stringValues[#stringValues + 1] = v;
@@ -151,9 +139,7 @@ function ConstantArray:createArray()
 
 			for i, v in ipairs(self.constants) do
 				if type(v) == "string" then
-					-- Marker: a single-element table holding this string's position
-					-- in the compressed blob. Real constants (numbers/booleans/nil)
-					-- are never tables, so this is unambiguous at decode time.
+
 					entries[i] = Ast.TableEntry(Ast.TableConstructorExpression({
 						Ast.TableEntry(Ast.NumberExpression(stringPositions[i]))
 					}));
@@ -233,7 +219,7 @@ local function reverse(t, i, j)
 	  i, j = i+1, j-1
 	end
 end
-  
+
 local function rotate(t, d, n)
 	n = n or #t
 	d = (d or 1) % n
@@ -346,17 +332,18 @@ function ConstantArray:addDecodeCode(ast)
 				end
 			end
 		end)
-	
+
 		table.insert(ast.body.statements, 1, forStat);
 	end
 
 	if self.Encoding == "xor" and not self.Compress then
 		local xorDecodeCode = [[
 	do ]] .. table.concat(util.shuffle{
-		"local keytabs = KEYTABS;",
-		"local keylen  = #keytabs;",
+		"local key     = XORKEY;",
+		"local keylen  = #key;",
 		"local strchar = string.char;",
 		"local byte    = string.byte;",
+		"local bxor    = bit32.bxor;",
 		"local concat  = table.concat;",
 		"local type    = type;",
 		"local arr     = ARR;",
@@ -367,7 +354,7 @@ function ConstantArray:addDecodeCode(ast)
 				local len = #data;
 				local parts = {};
 				for j = 1, len do
-					parts[j] = strchar(keytabs[((j - 1) % keylen) + 1][byte(data, j) + 1]);
+					parts[j] = strchar(bxor(byte(data, j), key[((j - 1) % keylen) + 1]));
 				end
 				arr[i] = concat(parts);
 			end
@@ -392,9 +379,9 @@ function ConstantArray:addDecodeCode(ast)
 					node.id    = self.arrId;
 				end
 
-				if(node.scope:getVariableName(node.id) == "KEYTABS") then
+				if(node.scope:getVariableName(node.id) == "XORKEY") then
 					data.scope:removeReferenceToHigherScope(node.scope, node.id);
-					return self:createXorLookup();
+					return self:createXorKeyTable();
 				end
 			end
 		end)
@@ -403,21 +390,12 @@ function ConstantArray:addDecodeCode(ast)
 	end
 end
 
-function ConstantArray:createXorLookup()
-	-- One 256-entry translation table per key byte, built at compile time
-	-- (using bit32.bxor here, in the obfuscator's own Lua environment - not
-	-- in the generated output). The runtime decoder just does table lookups,
-	-- so the generated script needs no bitwise-op library and stays
-	-- compatible with plain Lua 5.1.
-	local outerEntries = {};
-	for k, keyByte in ipairs(self.xorKey) do
-		local innerEntries = {};
-		for b = 0, 255 do
-			innerEntries[b + 1] = Ast.TableEntry(Ast.NumberExpression(bit32.bxor(b, keyByte)));
-		end
-		outerEntries[k] = Ast.TableEntry(Ast.TableConstructorExpression(innerEntries));
+function ConstantArray:createXorKeyTable()
+	local entries = {};
+	for i, keyByte in ipairs(self.xorKey) do
+		entries[i] = Ast.TableEntry(Ast.NumberExpression(keyByte));
 	end
-	return Ast.TableConstructorExpression(outerEntries);
+	return Ast.TableConstructorExpression(entries);
 end
 
 function ConstantArray:createBase64Lookup()
@@ -444,13 +422,6 @@ function ConstantArray:addCompressedStringDecodeCode(ast)
 		return;
 	end
 
-	-- Splices in:
-	--   1. the embedded LZW codes as a literal number array
-	--   2. the LZW decompressor (see prometheus.lzw's decodeSource)
-	--   3. code that splits the decompressed blob back into individual
-	--      strings using their 4-byte length prefixes
-	--   4. a pass over ARR that replaces each {N} marker table with the
-	--      corresponding decompressed string
 	local decodeCode = [==[
 do
 	local CODES = CODES_LITERAL;
@@ -508,7 +479,7 @@ end
 
 function ConstantArray:encode(str)
 	if self.Encoding == "base64" then
-		return ((str:gsub('.', function(x) 
+		return ((str:gsub('.', function(x)
 			local r,b='',x:byte()
 			for i=8,1,-1 do r=r..(b%2^i-b%2^(i-1)>0 and '1' or '0') end
 			return r;
@@ -543,8 +514,7 @@ function ConstantArray:apply(ast, pipeline)
 	});
 
 	if self.Encoding == "xor" then
-		-- Random multi-byte key (4-16 bytes), each byte 1-255 (0 would be a
-		-- no-op for that position, so it's excluded).
+
 		self.xorKey = {};
 		local keyLen = math.random(4, 16);
 		for i = 1, keyLen do
@@ -555,9 +525,8 @@ function ConstantArray:apply(ast, pipeline)
 	self.constants = {};
 	self.lookup    = {};
 
-	-- Extract Constants
 	visitast(ast, nil, function(node, data)
-		-- Apply only to some nodes
+
 		if math.random() <= self.Treshold then
 			node.__apply_constant_array = true;
 			if node.kind == AstKind.StringExpression then
@@ -566,13 +535,12 @@ function ConstantArray:apply(ast, pipeline)
 				if node.isConstant then
 					if node.value ~= nil then
 						self:addConstant(node.value);
-					end 
+					end
 				end
 			end
 		end
 	end);
 
-	-- Shuffle Array
 	if self.Shuffle then
 		self.constants = util.shuffle(self.constants);
 		self.lookup    = {};
@@ -581,12 +549,11 @@ function ConstantArray:apply(ast, pipeline)
 		end
 	end
 
-	-- Set Wrapper Function Offset
 	self.wrapperOffset = math.random(-self.MaxWrapperOffset, self.MaxWrapperOffset);
 	self.wrapperId     = self.rootScope:addVariable();
 
 	visitast(ast, function(node, data)
-		-- Add Local Wrapper Functions
+
 		if self.LocalWrapperCount > 0 and node.kind == AstKind.Block and node.isFunctionBlock and math.random() <= self.LocalWrapperTreshold then
 			local id = node.scope:addVariable()
 			data.functionData.local_wrappers = {
@@ -616,7 +583,7 @@ function ConstantArray:apply(ast, pipeline)
 			data.functionData.__used = true;
 		end
 	end, function(node, data)
-		-- Actually insert Statements to get the Constant Values
+
 		if node.__apply_constant_array then
 			if node.kind == AstKind.StringExpression then
 				return self:getConstant(node.value, data);
@@ -628,7 +595,6 @@ function ConstantArray:apply(ast, pipeline)
 			node.__apply_constant_array = nil;
 		end
 
-		-- Insert Local Wrapper Declarations
 		if self.LocalWrapperCount > 0 and node.kind == AstKind.Block and node.isFunctionBlock and data.functionData.local_wrappers and data.functionData.__used then
 			data.functionData.__used = nil;
 			local elems = {};
@@ -653,7 +619,6 @@ function ConstantArray:apply(ast, pipeline)
 
 				local addSubArg;
 
-				-- Create add and Subtract code
 				if offset < 0 then
 					addSubArg = Ast.SubExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(-offset));
 				else
@@ -688,23 +653,21 @@ function ConstantArray:apply(ast, pipeline)
 	end);
 
 	local steps = util.shuffle({
-		-- Add Wrapper Function Code
-		function() 
+
+		function()
 			local funcScope = Scope:new(self.rootScope);
-			-- Add Reference to Array
+
 			funcScope:addReferenceToHigherScope(self.rootScope, self.arrId);
 
 			local arg = funcScope:addVariable();
 			local addSubArg;
 
-			-- Create add and Subtract code
 			if self.wrapperOffset < 0 then
 				addSubArg = Ast.SubExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(-self.wrapperOffset));
 			else
 				addSubArg = Ast.AddExpression(Ast.VariableExpression(funcScope, arg), Ast.NumberExpression(self.wrapperOffset));
 			end
 
-			-- Create and Add the Function Declaration
 			table.insert(ast.body.statements, 1, Ast.LocalFunctionDeclaration(self.rootScope, self.wrapperId, {
 				Ast.VariableExpression(funcScope, arg)
 			}, Ast.Block({
@@ -716,12 +679,8 @@ function ConstantArray:apply(ast, pipeline)
 				});
 			}, funcScope)));
 
-			-- Resulting Code:
-			-- function xy(a)
-			-- 		return ARR[a - 10]
-			-- end
 		end,
-		-- Rotate Array and Add unrotate code
+
 		function()
 			if self.Rotate and #self.constants > 1 then
 				local shift = math.random(1, #self.constants - 1);
@@ -736,15 +695,11 @@ function ConstantArray:apply(ast, pipeline)
 		f();
 	end
 
-	-- Build the array (this also sets self.compressedCodes as a side effect,
-	-- when Compress is enabled) AFTER rotation, so the embedded literal and
-	-- any generated decode code both reflect the final, rotated order.
 	local arrayExpression = self:createArray();
 
 	self:addDecodeCode(ast);
 	self:addCompressedStringDecodeCode(ast);
 
-	-- Add the Array Declaration
 	table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.rootScope, {self.arrId}, {arrayExpression}));
 
 	self.rootScope = nil;
