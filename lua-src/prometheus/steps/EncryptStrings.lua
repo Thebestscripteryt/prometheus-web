@@ -1,9 +1,3 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- EncryptStrings.lua
---
--- This Script provides a Simple Obfuscation Step that encrypts strings
-
 local unpack = unpack or table.unpack;
 
 local Step = require("prometheus.step")
@@ -25,17 +19,14 @@ EncryptStrings.SettingsDescriptor = {}
 
 function EncryptStrings:init(settings) end
 
-
 function EncryptStrings:CreateEncrypionService()
 	local usedSeeds = {};
 
-	local secret_key_6 = math.random(0, 63) -- 6-bit  arbitrary integer (0..63)
-	local secret_key_7 = math.random(0, 127) -- 7-bit  arbitrary integer (0..127)
-	-- 44-bit arbitrary integer (0..17592186044415). Some Lua runtimes (incl. Lua 5.1
-	-- on 64-bit builds) error on math.random ranges above 2^31-1, so build it from
-	-- two smaller random calls instead of one call with the full 44-bit span.
+	local secret_key_6 = math.random(0, 63)
+	local secret_key_7 = math.random(0, 127)
+
 	local secret_key_44 = math.random(0, 0x3FFFFFF) * 0x40 + math.random(0, 0x3F)
-	local secret_key_8 = math.random(0, 255); -- 8-bit  arbitrary integer (0..255)
+	local secret_key_8 = math.random(0, 255);
 
 	local floor = math.floor
 
@@ -64,8 +55,7 @@ function EncryptStrings:CreateEncrypionService()
 	local function gen_seed()
 		local seed;
 		repeat
-			-- 44-bit range built from two smaller math.random calls, since some Lua
-			-- runtimes overflow/degenerate on ranges above 2^31-1 (see secret_key_44 above).
+
 			seed = math.random(0, 0x3FFFFFF) * 0x40 + math.random(0, 0x3F);
 		until not usedSeeds[seed];
 		usedSeeds[seed] = true;
@@ -84,7 +74,7 @@ function EncryptStrings:CreateEncrypionService()
 
 	local function get_next_pseudo_random_byte()
 		if #prev_values == 0 then
-			local rnd = get_random_32() -- value 0..4294967295
+			local rnd = get_random_32()
 			local low_16 = rnd % 65536
 			local high_16 = (rnd - low_16) / 65536
 			local b1 = low_16 % 256
@@ -93,7 +83,7 @@ function EncryptStrings:CreateEncrypionService()
 			local b4 = (high_16 - b3) / 256
 			prev_values = { b1, b2, b3, b4 }
 		end
-		--print(unpack(prev_values))
+
 		return table.remove(prev_values)
 	end
 
@@ -135,27 +125,6 @@ do
 		charmap[n] = char(n - 1);
 	until #nums == 0;
 
-	local prev_values = {}
-	local function get_next_pseudo_random_byte()
-		if #prev_values == 0 then
-			state_45 = (state_45 * ]] .. tostring(param_mul_45) .. [[ + ]] .. tostring(param_add_45) .. [[) % 35184372088832
-			repeat
-				state_8 = state_8 * ]] .. tostring(param_mul_8) .. [[ % 257
-			until state_8 ~= 1
-			local r = state_8 % 32
-			local n = floor(state_45 / 2 ^ (13 - (state_8 - r) / 32)) % 2 ^ 32 / 2 ^ r
-			local rnd = floor(n % 1 * 2 ^ 32) + floor(n)
-			local low_16 = rnd % 65536
-			local high_16 = (rnd - low_16) / 65536
-			local b1 = low_16 % 256
-			local b2 = (low_16 - b1) / 256
-			local b3 = high_16 % 256
-			local b4 = (high_16 - b3) / 256
-			prev_values = { b1, b2, b3, b4 }
-		end
-		return table.remove(prev_values)
-	end
-
 	local realStrings = {};
 	STRINGS = setmetatable({}, {
 		__index = realStrings;
@@ -164,7 +133,7 @@ do
   	function DECRYPT(str, seed)
 		local realStringsLocal = realStrings;
 		if(realStringsLocal[seed]) then else
-			prev_values = {};
+			local prev_values = {};
 			local chars = charmap;
 			state_45 = seed % 35184372088832
 			state_8 = seed % 255 + 2
@@ -172,7 +141,24 @@ do
 			realStringsLocal[seed] = "";
 			local prevVal = ]] .. tostring(secret_key_8) .. [[;
 			for i=1, len do
-				prevVal = (string.byte(str, i) + get_next_pseudo_random_byte() + prevVal) % 256
+				if #prev_values == 0 then
+					state_45 = (state_45 * ]] .. tostring(param_mul_45) .. [[ + ]] .. tostring(param_add_45) .. [[) % 35184372088832
+					repeat
+						state_8 = state_8 * ]] .. tostring(param_mul_8) .. [[ % 257
+					until state_8 ~= 1
+					local r = state_8 % 32
+					local n = floor(state_45 / 2 ^ (13 - (state_8 - r) / 32)) % 2 ^ 32 / 2 ^ r
+					local rnd = floor(n % 1 * 2 ^ 32) + floor(n)
+					local low_16 = rnd % 65536
+					local high_16 = (rnd - low_16) / 65536
+					local b1 = low_16 % 256
+					local b2 = (low_16 - b1) / 256
+					local b3 = high_16 % 256
+					local b4 = (high_16 - b3) / 256
+					prev_values = { b1, b2, b3, b4 }
+				end
+				local nextByte = remove(prev_values)
+				prevVal = (string.byte(str, i) + nextByte + prevVal) % 256
 				realStringsLocal[seed] = realStringsLocal[seed] .. chars[prevVal + 1];
 			end
 		end
@@ -203,7 +189,7 @@ function EncryptStrings:apply(ast, pipeline)
 	local scope = ast.body.scope;
 	local decryptVar = scope:addVariable();
 	local stringsVar = scope:addVariable();
-	
+
 	doStat.body.scope:setParent(ast.body.scope);
 
 	visitast(newAst, nil, function(node, data)
@@ -235,9 +221,7 @@ function EncryptStrings:apply(ast, pipeline)
 			}));
 		end
 		if(node.kind == AstKind.InterpolatedStringExpression) then
-			-- Encrypt only the literal string chunks; the {expr} parts are already
-			-- expressions and get visited independently by visitast's traversal,
-			-- so we just need to rewrite the literal chunks here.
+
 			for _, part in ipairs(node.parts) do
 				if(part.kind == "string" and #part.value > 0) then
 					data.scope:addReferenceToHigherScope(scope, stringsVar);
@@ -252,8 +236,6 @@ function EncryptStrings:apply(ast, pipeline)
 		end
 	end)
 
-
-	-- Insert to Main Ast
 	table.insert(ast.body.statements, 1, doStat);
 	table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(scope, util.shuffle{ decryptVar, stringsVar }, {}));
 	return ast
