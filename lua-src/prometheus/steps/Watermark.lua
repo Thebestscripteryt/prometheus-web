@@ -1,8 +1,4 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- Watermark.lua
---
--- This Script provides a Step that will add a watermark to the script
+
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -28,7 +24,7 @@ Watermark.SettingsDescriptor = {
 }
 
 function Watermark:init(settings)
-	
+
 end
 
 function Watermark:apply(ast)
@@ -37,21 +33,10 @@ function Watermark:apply(ast)
     local scope, variable = ast.globalScope:resolve(self.CustomVariable);
     local watermark = Ast.AssignmentVariable(ast.globalScope, variable);
 
-    local functionScope = Scope:new(body.scope);
-    functionScope:addReferenceToHigherScope(ast.globalScope, variable);
-    
-    local arg = functionScope:addVariable();
-    local statement = Ast.PassSelfFunctionCallStatement(Ast.StringExpression(self.Content), "gsub", {
-      Ast.StringExpression(".+"),
-      Ast.FunctionLiteralExpression({
-        Ast.VariableExpression(functionScope, arg)
-      }, Ast.Block({
-        Ast.AssignmentStatement({
-          watermark
-        }, {
-          Ast.VariableExpression(functionScope, arg)
-        })
-      }, functionScope))
+    local statement = Ast.AssignmentStatement({
+      watermark
+    }, {
+      Ast.StringExpression(self.Content)
     });
 
     table.insert(ast.body.statements, 1, statement)
