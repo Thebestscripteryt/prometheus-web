@@ -1,8 +1,4 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- WatermarkCheck.lua
---
--- This Script provides a Step that will add a watermark to the script
+
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -41,10 +37,15 @@ function WatermarkCheck:apply(ast, pipeline)
   local watermarkExpression = Ast.StringExpression(self.Content);
   local scope, variable = ast.globalScope:resolve(self.CustomVariable);
   local watermark = Ast.VariableExpression(ast.globalScope, variable);
-  local notEqualsExpression = Ast.NotEqualsExpression(watermark, watermarkExpression);
-  local ifBody = Ast.Block({Ast.ReturnStatement({})}, Scope:new(ast.body.scope));
+  local equalsExpression = Ast.EqualsExpression(watermark, watermarkExpression);
+	
+  local innerScope = Scope:new(ast.body.scope);
+  local innerBlock = Ast.Block(body.statements, innerScope);
+  local ifBody = Ast.Block({}, Scope:new(ast.body.scope));
 
-  table.insert(body.statements, 1, Ast.IfStatement(notEqualsExpression, ifBody, {}, nil));
+  ast.body = Ast.Block({
+    Ast.IfStatement(equalsExpression, innerBlock, {}, ifBody)
+  }, ast.body.scope);
 end
 
 return WatermarkCheck;
