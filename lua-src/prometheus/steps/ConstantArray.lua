@@ -337,9 +337,10 @@ function ConstantArray:addDecodeCode(ast)
 	end
 
 	if self.Encoding == "xor" and not self.Compress then
-		local xorDecodeCode = [[
+		local keyLiteral = "{" .. table.concat(self.xorKey, ",") .. "}";
+		local xorDecodeCode = string.gsub([[
 	do ]] .. table.concat(util.shuffle{
-		"local key     = XORKEY;",
+		"local key     = XORKEY_LITERAL;",
 		"local keylen  = #key;",
 		"local strchar = string.char;",
 		"local byte    = string.byte;",
@@ -360,7 +361,7 @@ function ConstantArray:addDecodeCode(ast)
 			end
 		end
 	end
-]];
+]], "XORKEY_LITERAL", keyLiteral);
 
 		local parser = Parser:new({
 			LuaVersion = LuaVersion.Lua51;
@@ -378,24 +379,11 @@ function ConstantArray:addDecodeCode(ast)
 					node.scope = self.rootScope;
 					node.id    = self.arrId;
 				end
-
-				if(node.scope:getVariableName(node.id) == "XORKEY") then
-					data.scope:removeReferenceToHigherScope(node.scope, node.id);
-					return self:createXorKeyTable();
-				end
 			end
 		end)
 
 		table.insert(ast.body.statements, 1, forStat);
 	end
-end
-
-function ConstantArray:createXorKeyTable()
-	local entries = {};
-	for i, keyByte in ipairs(self.xorKey) do
-		entries[i] = Ast.TableEntry(Ast.NumberExpression(keyByte));
-	end
-	return Ast.TableConstructorExpression(entries);
 end
 
 function ConstantArray:createBase64Lookup()
