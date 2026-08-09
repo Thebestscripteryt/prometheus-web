@@ -33,29 +33,10 @@ function Watermark:apply(ast)
     local scope, variable = ast.globalScope:resolve(self.CustomVariable);
     local watermark = Ast.AssignmentVariable(ast.globalScope, variable);
 
-    local content = self.Content;
-    local len = string.len(content);
-    local pieceCount = math.min(len, math.random(2, 4));
-    local cuts = {};
-    for i = 1, pieceCount - 1 do
-      cuts[i] = math.random(1, len - 1);
-    end
-    table.sort(cuts);
-
-    local valueExpression;
-    local pos = 1;
-    for i = 1, pieceCount do
-      local cutEnd = cuts[i] or len;
-      if cutEnd < pos then cutEnd = pos; end
-      local piece = Ast.StringExpression(string.sub(content, pos, cutEnd));
-      valueExpression = valueExpression and Ast.StrCatExpression(valueExpression, piece) or piece;
-      pos = cutEnd + 1;
-    end
-
     local statement = Ast.AssignmentStatement({
       watermark
     }, {
-      valueExpression
+      Ast.StringExpression(self.Content)
     });
 
     table.insert(ast.body.statements, 1, statement)
