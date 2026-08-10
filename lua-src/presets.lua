@@ -154,7 +154,12 @@ return {
                     MaxJunkStatements = 3;
                 };
             },
-
+            {
+                Name = "ProxifyLocals";
+                Settings = {
+                    LiteralType = "string";
+                }
+            },
             {
                 Name = "EncryptStrings";
                 Settings = {
