@@ -142,12 +142,6 @@ return {
                 Settings = {}
             },
             {
-                Name = "OpaquePredicates";
-                Settings = {
-                    Treshold = 1;
-                };
-            },
-            {
                 Name = "JunkCodeInsertion";
                 Settings = {
                     Treshold = 0.15;
@@ -182,6 +176,14 @@ return {
                 Settings = {
 
                 }
+            },
+            {
+
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.15;
+                    MaxJunkStatements = 3;
+                };
             },
             {
                 Name = "WrapInFunction";
