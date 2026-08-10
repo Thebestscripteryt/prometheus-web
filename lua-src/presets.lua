@@ -155,6 +155,12 @@ return {
                 };
             },
             {
+                Name = "ProxifyLocals";
+                Settings = {
+                    LiteralType = "string";
+                }
+            },
+            {
                 Name = "EncryptStrings";
                 Settings = {
 
