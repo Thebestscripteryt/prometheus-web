@@ -142,17 +142,17 @@ return {
                 Settings = {}
             },
             {
+                Name = "OpaquePredicates";
+                Settings = {
+                    Treshold = 1;
+                };
+            },
+            {
                 Name = "JunkCodeInsertion";
                 Settings = {
                     Treshold = 0.15;
                     MaxJunkStatements = 3;
                 };
-            },
-            {
-                Name = "ProxifyLocals";
-                Settings = {
-                    LiteralType = "string";
-                }
             },
             {
                 Name = "EncryptStrings";
