@@ -1,8 +1,4 @@
--- This Script is Part of the Prometheus Obfuscator by Levno_710
---
--- ProxifyLocals.lua
---
--- This Script provides a Obfuscation Step for putting all Locals into Proxy Objects
+
 
 local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
@@ -39,7 +35,7 @@ local function shallowcopy(orig)
         for orig_key, orig_value in pairs(orig) do
             copy[orig_key] = orig_value
         end
-    else -- number, string, boolean, etc
+    else
         copy = orig
     end
     return copy
@@ -84,7 +80,7 @@ local MetatableExpressions = {
 }
 
 function ProifyLocals:init(settings)
-	
+
 end
 
 local function generateLocalMetatableInfo(pipeline)
@@ -107,16 +103,18 @@ end
 function ProifyLocals:CreateAssignmentExpression(info, expr, parentScope)
     local metatableVals = {};
 
-    -- Setvalue Entry
-    local setValueFunctionScope = Scope:new(parentScope);
+    local containerScope = Scope:new(parentScope);
+    local containerArg = containerScope:addVariable();
+
+    local setValueFunctionScope = Scope:new(containerScope);
     local setValueSelf = setValueFunctionScope:addVariable();
     local setValueArg = setValueFunctionScope:addVariable();
     local setvalueFunctionLiteral = Ast.FunctionLiteralExpression(
         {
-            Ast.VariableExpression(setValueFunctionScope, setValueSelf), -- Argument 1
-            Ast.VariableExpression(setValueFunctionScope, setValueArg), -- Argument 2
+            Ast.VariableExpression(setValueFunctionScope, setValueSelf),
+            Ast.VariableExpression(setValueFunctionScope, setValueArg),
         },
-        Ast.Block({ -- Create Function Body
+        Ast.Block({
             Ast.AssignmentStatement({
                 Ast.AssignmentIndexing(Ast.VariableExpression(setValueFunctionScope, setValueSelf), Ast.StringExpression(info.valueName));
             }, {
@@ -124,10 +122,10 @@ function ProifyLocals:CreateAssignmentExpression(info, expr, parentScope)
             })
         }, setValueFunctionScope)
     );
-    table.insert(metatableVals, Ast.KeyedTableEntry(Ast.StringExpression(info.setValue.key), setvalueFunctionLiteral));
+    local setValueId = containerScope:addVariable();
+    table.insert(metatableVals, Ast.KeyedTableEntry(Ast.StringExpression(info.setValue.key), Ast.VariableExpression(containerScope, setValueId)));
 
-    -- Getvalue Entry
-    local getValueFunctionScope = Scope:new(parentScope);
+    local getValueFunctionScope = Scope:new(containerScope);
     local getValueSelf = getValueFunctionScope:addVariable();
     local getValueArg = getValueFunctionScope:addVariable();
     local getValueIdxExpr;
@@ -141,38 +139,50 @@ function ProifyLocals:CreateAssignmentExpression(info, expr, parentScope)
     end
     local getvalueFunctionLiteral = Ast.FunctionLiteralExpression(
         {
-            Ast.VariableExpression(getValueFunctionScope, getValueSelf), -- Argument 1
-            Ast.VariableExpression(getValueFunctionScope, getValueArg), -- Argument 2
+            Ast.VariableExpression(getValueFunctionScope, getValueSelf),
+            Ast.VariableExpression(getValueFunctionScope, getValueArg),
         },
-        Ast.Block({ -- Create Function Body
+        Ast.Block({
             Ast.ReturnStatement({
                 getValueIdxExpr;
             });
         }, getValueFunctionScope)
     );
-    table.insert(metatableVals, Ast.KeyedTableEntry(Ast.StringExpression(info.getValue.key), getvalueFunctionLiteral));
+    local getValueId = containerScope:addVariable();
+    table.insert(metatableVals, Ast.KeyedTableEntry(Ast.StringExpression(info.getValue.key), Ast.VariableExpression(containerScope, getValueId)));
 
-    parentScope:addReferenceToHigherScope(self.setMetatableVarScope, self.setMetatableVarId);
-    return Ast.FunctionCallExpression(
+    containerScope:addReferenceToHigherScope(self.setMetatableVarScope, self.setMetatableVarId);
+    local proxyResult = Ast.FunctionCallExpression(
         Ast.VariableExpression(self.setMetatableVarScope, self.setMetatableVarId),
         {
             Ast.TableConstructorExpression({
-                Ast.KeyedTableEntry(Ast.StringExpression(info.valueName), expr)
+                Ast.KeyedTableEntry(Ast.StringExpression(info.valueName), Ast.VariableExpression(containerScope, containerArg))
             }),
             Ast.TableConstructorExpression(metatableVals)
         }
+    );
+
+    return Ast.FunctionCallExpression(
+        Ast.FunctionLiteralExpression({
+            Ast.VariableExpression(containerScope, containerArg)
+        }, Ast.Block({
+            Ast.LocalVariableDeclaration(containerScope, {setValueId}, {setvalueFunctionLiteral});
+            Ast.LocalVariableDeclaration(containerScope, {getValueId}, {getvalueFunctionLiteral});
+            Ast.ReturnStatement({proxyResult});
+        }, containerScope)),
+        {expr}
     );
 end
 
 function ProifyLocals:apply(ast, pipeline)
     local localMetatableInfos = {};
     local function getLocalMetatableInfo(scope, id)
-        -- Global Variables should not be transformed
+
         if(scope.isGlobal) then return nil end;
 
         localMetatableInfos[scope] = localMetatableInfos[scope] or {};
         if localMetatableInfos[scope][id] then
-            -- If locked, return no Metatable
+
             if localMetatableInfos[scope][id].locked then
                 return nil
             end
@@ -184,60 +194,33 @@ function ProifyLocals:apply(ast, pipeline)
     end
 
     local function disableMetatableInfo(scope, id)
-        -- Global Variables should not be transformed
+
         if(scope.isGlobal) then return nil end;
 
         localMetatableInfos[scope] = localMetatableInfos[scope] or {};
         localMetatableInfos[scope][id] = {locked = true}
     end
 
-    -- Create Setmetatable Variable
     self.setMetatableVarScope = ast.body.scope;
     self.setMetatableVarId    = ast.body.scope:addVariable();
 
-    -- Create Empty Function Variable
     self.emptyFunctionScope   = ast.body.scope;
     self.emptyFunctionId      = ast.body.scope:addVariable();
     self.emptyFunctionUsed    = false;
 
-    -- Add Empty Function Declaration
     table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.emptyFunctionScope, {self.emptyFunctionId}, {
         Ast.FunctionLiteralExpression({}, Ast.Block({}, Scope:new(ast.body.scope)));
     }));
 
-
-    -- Pre-scan: lock any local used as the base of a dotted Function Declaration
-    -- (e.g. `function Utils.foo() end`) BEFORE the main transform pass begins.
-    -- This must happen upfront: sibling statements are transformed in order, so if
-    -- we only locked upon reaching the FunctionDeclaration node, an earlier sibling
-    -- statement like `local Utils = {}` would already have been proxied by then,
-    -- leaving it mismatched with the (now-locked) later accesses.
-    -- The Vmify compiler also does not track this kind of reference the same way it
-    -- tracks normal reads/writes (`FunctionDeclaration` never calls `scope:addReference`
-    -- the way `VariableExpression`/`AssignmentVariable` do), which can lead to the base
-    -- register being freed/reused too early. Proxying such tables is not worth the risk,
-    -- so they are excluded from proxying entirely.
     visitast(ast, function(node, data)
         if(node.kind == AstKind.FunctionDeclaration and #node.indices > 0) then
             disableMetatableInfo(node.scope, node.id);
         end
-        -- Lock recursive-capable local functions (`local function name() ... end`).
-        -- A function of this kind can call itself by name from within its own body,
-        -- which is a self-reference to a variable that is still being initialized.
-        -- Proxying it wraps the variable in a metatable-based indirection that does
-        -- not reliably survive this kind of recursive self-reference under Vmify,
-        -- so these are excluded from proxying entirely.
+
         if(node.kind == AstKind.LocalFunctionDeclaration) then
             disableMetatableInfo(node.scope, node.id);
         end
-        -- Lock all ids in `local a, b, ... = f()`-style declarations where the
-        -- number of ids exceeds the number of expressions (i.e. the trailing
-        -- expression is a call/vararg expected to expand into multiple values).
-        -- The per-id proxy-wrapping transform below assumes a 1:1 correspondence
-        -- between ids and expressions; when that assumption doesn't hold, it both
-        -- truncates the trailing call to a single value (by embedding it in a
-        -- keyed table entry) and silently substitutes nil for any id past the
-        -- first, dropping the call's additional return values entirely.
+
         if(node.kind == AstKind.LocalVariableDeclaration and #node.ids > #node.expressions) then
             for _, id in ipairs(node.ids) do
                 disableMetatableInfo(node.scope, id);
@@ -246,7 +229,7 @@ function ProifyLocals:apply(ast, pipeline)
     end, nil);
 
     visitast(ast, function(node, data)
-        -- Lock for loop variables
+
         if(node.kind == AstKind.ForStatement) then
             disableMetatableInfo(node.scope, node.id)
         end
@@ -256,7 +239,6 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Lock Function Arguments
         if(node.kind == AstKind.FunctionDeclaration or node.kind == AstKind.LocalFunctionDeclaration or node.kind == AstKind.FunctionLiteralExpression) then
             for i, expr in ipairs(node.args) do
                 if expr.kind == AstKind.VariableExpression then
@@ -265,7 +247,6 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Assignment Statements may be Obfuscated Differently
         if(node.kind == AstKind.AssignmentStatement) then
             if(#node.lhs == 1 and node.lhs[1].kind == AstKind.AssignmentVariable) then
                 local variable = node.lhs[1];
@@ -282,12 +263,12 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
     end, function(node, data)
-        -- Local Variable Declaration
+
         if(node.kind == AstKind.LocalVariableDeclaration) then
             for i, id in ipairs(node.ids) do
                 local expr = node.expressions[i] or Ast.NilExpression();
                 local localMetatableInfo = getLocalMetatableInfo(node.scope, id);
-                -- Apply Only to Some Variables if Treshold is non 1
+
                 if localMetatableInfo then
                     local newExpr = self:CreateAssignmentExpression(localMetatableInfo, expr, node.scope);
                     node.expressions[i] = newExpr;
@@ -295,10 +276,9 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Variable Expression
         if(node.kind == AstKind.VariableExpression and not node.__ignoreProxifyLocals) then
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
-            -- Apply Only to Some Variables if Treshold is non 1
+
             if localMetatableInfo then
                 local literal;
                 if self.LiteralType == "dictionary" then
@@ -314,10 +294,9 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Assignment Variable for Assignment Statement
         if(node.kind == AstKind.AssignmentVariable) then
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
-            -- Apply Only to Some Variables if Treshold is non 1
+
             if localMetatableInfo then
                 local vexp = Ast.VariableExpression(node.scope, node.id);
                 vexp.__ignoreProxifyLocals = true;
@@ -325,10 +304,9 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Local Function Declaration
         if(node.kind == AstKind.LocalFunctionDeclaration) then
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
-            -- Apply Only to Some Variables if Treshold is non 1
+
             if localMetatableInfo then
                 local funcLiteral = Ast.FunctionLiteralExpression(node.args, node.body);
                 local newExpr = self:CreateAssignmentExpression(localMetatableInfo, funcLiteral, node.scope);
@@ -336,7 +314,6 @@ function ProifyLocals:apply(ast, pipeline)
             end
         end
 
-        -- Function Declaration
         if(node.kind == AstKind.FunctionDeclaration) then
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
             if(localMetatableInfo) then
@@ -345,7 +322,6 @@ function ProifyLocals:apply(ast, pipeline)
         end
     end)
 
-    -- Add Setmetatable Variable Declaration
     table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.setMetatableVarScope, {self.setMetatableVarId}, {
         Ast.VariableExpression(self.setMetatableVarScope:resolveGlobal("setmetatable"))
     }));
