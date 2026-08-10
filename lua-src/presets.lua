@@ -184,14 +184,6 @@ return {
                 }
             },
             {
-
-                Name = "JunkCodeInsertion";
-                Settings = {
-                    Treshold = 0.15;
-                    MaxJunkStatements = 3;
-                };
-            },
-            {
                 Name = "WrapInFunction";
                 Settings = {
 
