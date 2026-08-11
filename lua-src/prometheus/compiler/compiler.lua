@@ -1,5 +1,7 @@
+
+
 local MAX_REGS = 100;
-local MAX_REGS_MUL = 2;
+local MAX_REGS_MUL = 0;
 
 local Compiler = {};
 
