@@ -39,7 +39,7 @@ return {
                 Settings = {
                     Treshold    = 1;
                     StringsOnly = true;
-                    Encoding    = "none";
+                    Encoding    = "xor";
                 }
             },
             {
