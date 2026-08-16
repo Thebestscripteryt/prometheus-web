@@ -340,11 +340,10 @@ function ConstantArray:addDecodeCode(ast)
 		local keyLiteral = "{" .. table.concat(self.xorKey, ",") .. "}";
 		local xorDecodeCode = string.gsub([[
 	do ]] .. table.concat(util.shuffle{
-		"local key     = XORKEY_LITERAL;",
-		"local keylen  = #key;",
+		"local key     = XORKEY_LITERAL; local keylen  = #key;",
 		"local strchar = string.char;",
 		"local byte    = string.byte;",
-		"local bxor    = bit32.bxor;",
+		"local floor   = math.floor;",
 		"local concat  = table.concat;",
 		"local type    = type;",
 		"local arr     = ARR;",
@@ -355,7 +354,21 @@ function ConstantArray:addDecodeCode(ast)
 				local len = #data;
 				local parts = {};
 				for j = 1, len do
-					parts[j] = strchar(bxor(byte(data, j), key[((j - 1) % keylen) + 1]));
+					local av = byte(data, j);
+					local bv = key[((j - 1) % keylen) + 1];
+					local result = 0;
+					local mult = 1;
+					for bit = 1, 8 do
+						local abit = av % 2;
+						local bbit = bv % 2;
+						if abit ~= bbit then
+							result = result + mult;
+						end
+						av = floor(av / 2);
+						bv = floor(bv / 2);
+						mult = mult * 2;
+					end
+					parts[j] = strchar(result);
 				end
 				arr[i] = concat(parts);
 			end
@@ -577,7 +590,9 @@ function ConstantArray:apply(ast, pipeline)
 				return self:getConstant(node.value, data);
 			elseif not self.StringsOnly then
 				if node.isConstant then
-					return node.value ~= nil and self:getConstant(node.value, data);
+					if node.value ~= nil then
+						return self:getConstant(node.value, data);
+					end
 				end
 			end
 			node.__apply_constant_array = nil;
