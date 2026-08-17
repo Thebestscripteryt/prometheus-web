@@ -279,14 +279,6 @@ return {
             },
 
             {
-                Name = "AntiTamper";
-                Settings = {
-                    UseDebug = true;
-                    DiagnosticMode = true;
-                };
-            },
-
-            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold = 1;
