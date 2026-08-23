@@ -241,8 +241,8 @@ return {
             {
                 Name = "JunkCodeInsertion";
                 Settings = {
-                    Treshold = 0.35;
-                    MaxJunkStatements = 6;
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
                 };
             },
 
@@ -267,7 +267,7 @@ return {
                 Name = "NumbersToExpressions";
                 Settings = {
                     Treshold = 1;
-                    InternalTreshold = 0.5;
+                    InternalTreshold = 0.3;
                 };
             },
 
@@ -296,15 +296,15 @@ return {
             {
                 Name = "JunkCodeInsertion";
                 Settings = {
-                    Treshold = 0.3;
-                    MaxJunkStatements = 5;
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
                 };
             },
 
             {
                 Name = "WrapInFunction";
                 Settings = {
-                    Iterations = 3;
+                    Iterations = 1;
                 };
             },
 
