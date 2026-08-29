@@ -442,143 +442,13 @@ function AntiTamper:apply(ast, pipeline)
                 else
                     pass("game_is_datamodel", true)
                 end
-                local run_service_a = get_service(game_object, "RunService")
-                local run_service_b = get_service(game_object, "RunService")
-                local players = get_service(game_object, "Players")
-                local workspace_service = get_service(game_object, "Workspace")
-                if run_service_a ~= nil and run_service_b ~= nil then
-                    if run_service_a ~= run_service_b then
-                        soft("getservice_identity_changed:RunService", true)
-                    else
-                        pass("getservice_identity_stable:RunService", true)
-                    end
-                end
-                if run_service_a ~= nil then
-                    expect_instance("RunService", run_service_a, "RunService")
-                    if type(run_service_a.IsClient) ~= "function" then
-                        hard("runservice_isclient_missing", type(run_service_a.IsClient))
-                    else
-                        local ok_client, is_client = pcall(run_service_a.IsClient, run_service_a)
-                        if not ok_client or is_client ~= true then
-                            soft("not_running_on_client", is_client)
-                        else
-                            pass("running_on_client", true)
-                        end
-                    end
-                    local ok_heartbeat, heartbeat = pcall(read_member, run_service_a, "Heartbeat")
-                    if not ok_heartbeat or value_type(heartbeat) ~= "RBXScriptSignal" then
-                        hard("heartbeat_invalid", value_type(heartbeat))
-                    else
-                        pass("heartbeat_valid", true)
-                    end
-                    local ok_render, render_stepped = pcall(read_member, run_service_a, "RenderStepped")
-                    if ok_render and render_stepped ~= nil then
-                        if value_type(render_stepped) ~= "RBXScriptSignal" then
-                            hard("renderstepped_invalid", value_type(render_stepped))
-                        else
-                            pass("renderstepped_valid", true)
-                        end
-                    end
-                end
-                if players ~= nil then
-                    expect_instance("Players", players, "Players")
-                    local ok_local_player, local_player = pcall(read_member, players, "LocalPlayer")
-                    if not ok_local_player or value_type(local_player) ~= "Instance" then
-                        hard("localplayer_invalid", value_type(local_player))
-                    else
-                        local ok_is_player, is_player = safe_call(local_player.IsA, local_player, "Player")
-                        if not ok_is_player or is_player ~= true then
-                            hard("localplayer_not_player", is_player)
-                        elseif local_player.Parent ~= players then
-                            hard("localplayer_wrong_parent", value_type(local_player.Parent))
-                        else
-                            pass("localplayer_valid", true)
-                        end
-                    end
-                end
-                if workspace_service ~= nil then
-                    expect_instance("Workspace", workspace_service, "Workspace")
-                end
                 return {
                     game = game_object,
-                    run_service = run_service_a,
-                    players = players,
-                    workspace = workspace_service,
                 }
             end
             local function destroy_instance(object)
                 if object ~= nil and type(object.Destroy) == "function" then
                     pcall(object.Destroy, object)
-                end
-            end
-            local function check_instance_properties()
-                if type(Instance) ~= "table" or type(Instance.new) ~= "function" then
-                    hard("instance_constructor_missing", type(Instance))
-                    return
-                end
-                local checks = {
-                    { class = "Part", property = "CFrame", expected = "CFrame" },
-                    { class = "Part", property = "Position", expected = "Vector3" },
-                    { class = "Part", property = "Material", expected = "EnumItem" },
-                    { class = "Model", property = "WorldPivot", expected = "CFrame" },
-                    { class = "Model", property = "PrimaryPart", expected = "nil" },
-                    { class = "BoolValue", property = "Value", expected = "boolean" },
-                    { class = "StringValue", property = "Value", expected = "string" },
-                    { class = "ObjectValue", property = "Value", expected = "nil" },
-                    { class = "Vector3Value", property = "Value", expected = "Vector3" },
-                    { class = "CFrameValue", property = "Value", expected = "CFrame" },
-                    { class = "Color3Value", property = "Value", expected = "Color3" },
-                    { class = "BrickColorValue", property = "Value", expected = "BrickColor" },
-                    { class = "RayValue", property = "Value", expected = "Ray" },
-                    { class = "ScreenGui", property = "DisplayOrder", expected = "number" },
-                    { class = "ScreenGui", property = "IgnoreGuiInset", expected = "boolean" },
-                    { class = "UICorner", property = "CornerRadius", expected = "UDim" },
-                    { class = "UIListLayout", property = "AbsoluteContentSize", expected = "Vector2" },
-                    { class = "Sound", property = "SoundId", expected = "string" },
-                    { class = "Animation", property = "AnimationId", expected = "string" },
-                }
-                for _, check in ipairs(checks) do
-                    local ok_new, object = pcall(Instance.new, check.class)
-                    if not ok_new or value_type(object) ~= "Instance" then
-                        hard("instance_create_failed:" .. check.class, object)
-                    else
-                        local ok_read, value = pcall(read_member, object, check.property)
-                        local actual = ok_read and value_type(value) or "read-error"
-                        if not ok_read or actual ~= check.expected then
-                            hard(
-                                "property_type_mismatch:" .. check.class .. "." .. check.property,
-                                { expected = check.expected, actual = actual }
-                            )
-                        else
-                            pass("property_type_valid:" .. check.class .. "." .. check.property, actual)
-                        end
-                    end
-                    destroy_instance(object)
-                end
-                local callback_checks = {
-                    { class = "BindableFunction", property = "OnInvoke" },
-                    { class = "RemoteFunction", property = "OnClientInvoke" },
-                }
-                local callback = function() return nil end
-                for _, check in ipairs(callback_checks) do
-                    local ok_new, object = pcall(Instance.new, check.class)
-                    if not ok_new or value_type(object) ~= "Instance" then
-                        hard("instance_create_failed:" .. check.class, object)
-                    else
-                        local ok_write = pcall(write_member, object, check.property, callback)
-                        local ok_read, read_value = pcall(read_member, object, check.property)
-                        if not ok_write then
-                            hard("callback_property_write_failed:" .. check.class .. "." .. check.property, true)
-                        elseif ok_read then
-                            hard(
-                                "callback_property_unexpectedly_readable:" .. check.class .. "." .. check.property,
-                                value_type(read_value)
-                            )
-                        else
-                            pass("callback_property_behavior_valid:" .. check.class .. "." .. check.property, true)
-                        end
-                    end
-                    destroy_instance(object)
                 end
             end
             local function check_enums()
@@ -731,30 +601,6 @@ function AntiTamper:apply(ast, pipeline)
                     end
                 else
                     pass("debug_info_unavailable", true)
-                end
-                local ok_http, http_svc = pcall(function()
-                    return game:GetService("HttpService")
-                end)
-                if ok_http and http_svc then
-                    local ok_enc, enc_result = pcall(function()
-                        return http_svc:JSONEncode({ a = 1 })
-                    end)
-                    if not ok_enc or type(enc_result) ~= "string" then
-                        hard("jsonencode_returned_non_string", enc_result)
-                    else
-                        pass("jsonencode_valid", true)
-                    end
-                else
-                    soft("http_service_unavailable", ok_http)
-                end
-                local ok_rs, rs = pcall(function() return game:GetService("RunService") end)
-                if ok_rs and rs then
-                    local ok_ic = pcall(function() rs:IsClient() end)
-                    if not ok_ic then
-                        hard("runservice_isclient_error", true)
-                    else
-                        pass("runservice_isclient_ok", true)
-                    end
                 end
                 local probe_mt = setmetatable({}, {})
                 local got_mt = getmetatable(probe_mt)
@@ -963,7 +809,6 @@ function AntiTamper:apply(ast, pipeline)
             check_line_consistency()
             check_coroutine_state()
             check_roblox_services()
-            check_instance_properties()
             check_enums()
             check_raw_environment_access()
             check_runtime_integrity()
