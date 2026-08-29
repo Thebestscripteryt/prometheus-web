@@ -53,6 +53,11 @@ return {
             },
 
             {
+                Name = "AntiTamper";
+                Settings = {};
+            },
+
+            {
                 Name = "Vmify";
                 Settings = {
 
@@ -111,6 +116,11 @@ return {
                 Settings = {
 
                 }
+            },
+
+            {
+                Name = "AntiTamper";
+                Settings = {};
             },
 
             {
