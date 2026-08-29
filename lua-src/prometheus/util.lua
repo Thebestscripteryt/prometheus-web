@@ -133,7 +133,18 @@ local function readDouble(bytes)
 	local exponent = (bytes[1] % 128) * 2^4 + math.floor(bytes[2] / 2^4)
 
 	if exponent == 0 then
-		return 0
+			-- Preserve the sign of negative zero. Do not use `-0.0` and `0.0`
+			-- as sibling constants: Lua 5.1 may deduplicate them because -0 == 0.
+			-- Build zero at runtime so the IEEE-754 sign survives the read path.
+			local zero = bytes[1] - bytes[1]
+			if bytes[1] > 127 then return -zero end
+			return zero
+	end
+	if exponent == 2047 then
+		if mantissa == 0 then
+			return sign < 0 and -math.huge or math.huge
+		end
+		return 0 / 0
 	end
 	mantissa = (math.ldexp(mantissa, -52) + 1) * sign
 	return math.ldexp(mantissa, exponent - 1023)
@@ -142,9 +153,19 @@ end
 local function writeDouble(num)
 	local bytes = {0,0,0,0, 0,0,0,0}
 	if num == 0 then
+		-- `-0 == 0`, but its sign is observable through 1 / num.
+		if 1 / num == -math.huge then bytes[1] = 128 end
 		return bytes
 	end
 	local anum = math.abs(num)
+	if num ~= num or anum == math.huge then
+		-- Encode IEEE-754 special values explicitly. Passing them through frexp
+		-- creates invalid exponent/mantissa bytes.
+		bytes[1] = (num < 0 and 128 or 0) + 127
+		bytes[2] = 240
+		if num ~= num then bytes[8] = 1 end
+		return bytes
+	end
 
 	local mantissa, exponent = math.frexp(anum)
 	exponent = exponent - 1
