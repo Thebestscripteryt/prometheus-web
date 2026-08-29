@@ -446,6 +446,10 @@ function Unparser:unparseExpression(expression, tabbing)
 	end
 	
 	if(expression.kind == AstKind.NumberExpression) then
+		-- Preserve IEEE-754 negative zero; `-0 == 0`, but 1 / -0 is -inf.
+		if expression.value == 0 and 1 / expression.value == -math.huge then
+			return "-0.0";
+		end
 		local str = tostring(expression.value);
 		if(str == "inf") then
 			return "2e1024"
