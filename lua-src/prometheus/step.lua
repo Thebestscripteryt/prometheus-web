@@ -53,7 +53,7 @@ function Step:new(settings)
 		end
 	end
 	
-	instance:init();
+	instance:init(settings);
 
 	return instance;
 end
