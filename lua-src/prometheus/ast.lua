@@ -686,6 +686,11 @@ function Ast.NotExpression(rhs, simplify)
 end
 
 function Ast.NegateExpression(rhs, simplify)
+	-- Do not fold zero: `-0` has an observable sign bit even though it compares
+	-- equal to `0`. Keeping the unary node lets the unparser/VM preserve it.
+	if(simplify and rhs.isConstant and rhs.value == 0) then
+		simplify = false
+	end
 	if(simplify and rhs.isConstant) then
 		local success, val = pcall(function() return -rhs.value end);
 		if success then
