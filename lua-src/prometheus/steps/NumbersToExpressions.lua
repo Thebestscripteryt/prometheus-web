@@ -98,6 +98,11 @@ function NumbersToExpressions:init(settings)
 end
 
 function NumbersToExpressions:CreateNumberExpression(val, depth)
+    -- Never decompose zero. Both signs compare equal, but the negative sign
+    -- remains observable through operations such as 1 / value.
+    if val == 0 then
+        return Ast.NumberExpression(val)
+    end
     if depth > 0 and math.random() >= self.InternalTreshold or depth > 15 then
         return Ast.NumberExpression(val)
     end
