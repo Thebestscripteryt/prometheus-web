@@ -13,11 +13,6 @@ return {
 
         Steps = {
 
-            {
-                Name = "AntiTamper";
-                Settings = {};
-            },
-
         }
     };
     ["Weak"] = {
@@ -53,11 +48,6 @@ return {
             },
 
             {
-                Name = "AntiTamper";
-                Settings = {};
-            },
-
-            {
                 Name = "Vmify";
                 Settings = {
 
@@ -81,7 +71,7 @@ return {
             {
                 Name = "WatermarkCheck";
                 Settings = {
-                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/obfuscaterhub-1406482504193544383 :: Website https://obfuscatorhub.vercel.app/",
                 };
             },
             {
@@ -119,11 +109,6 @@ return {
             },
 
             {
-                Name = "AntiTamper";
-                Settings = {};
-            },
-
-            {
                 Name = "Vmify";
                 Settings = {
 
@@ -147,7 +132,7 @@ return {
             {
                 Name = "WatermarkCheck";
                 Settings = {
-                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/obfuscaterhub-1406482504193544383 :: Website https://obfuscatorhub.vercel.app/",
                 };
             },
             {
@@ -180,6 +165,10 @@ return {
                 };
             },
             {
+                Name = "AntiTamper";
+                Settings = {};
+            },
+            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold    = 1;
@@ -210,12 +199,6 @@ return {
 
                 }
             },
-
-            {
-                Name = "AntiTamper";
-                Settings = {};
-            },
-
             {
                 Name = "Vmify";
                 Settings = {
@@ -240,7 +223,7 @@ return {
             {
                 Name = "WatermarkCheck";
                 Settings = {
-                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/WX2GXDJgSn :: Website https://obfuscatorhub.onrender.com/",
+                    Content = "ObfuscatorHub Protection :: Discord https://discord.gg/obfuscaterhub-1406482504193544383 :: Website https://obfuscatorhub.vercel.app/",
                 };
             },
 
@@ -297,6 +280,11 @@ return {
             },
 
             {
+                Name = "AntiTamper";
+                Settings = {};
+            },
+
+            {
                 Name = "ConstantArray";
                 Settings = {
                     Treshold = 1;
@@ -324,11 +312,6 @@ return {
                 Settings = {
                     Iterations = 1;
                 };
-            },
-
-            {
-                Name = "AntiTamper";
-                Settings = {};
             },
 
             {
