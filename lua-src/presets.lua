@@ -199,6 +199,11 @@ return {
             },
 
             {
+                Name = "AntiTamper";
+                Settings = {};
+            },
+
+            {
                 Name = "Vmify";
                 Settings = {
 
@@ -306,6 +311,11 @@ return {
                 Settings = {
                     Iterations = 1;
                 };
+            },
+
+            {
+                Name = "AntiTamper";
+                Settings = {};
             },
 
             {
