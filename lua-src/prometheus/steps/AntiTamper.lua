@@ -2616,11 +2616,14 @@ function AntiTamper:apply(ast, pipeline)
                 if type(debug.info) == "function" then
                     local ok, src = pcall(debug.info, fn, "s")
                     if not ok then return false end
-                    return src ~= "[C]" and src ~= nil
+                    if src == nil then return false end
+                    local native = src == "[C]" or src == "=[C]" or src == "C"
+                    return not native
                 elseif type(debug.getinfo) == "function" then
                     local ok, info = pcall(debug.getinfo, fn)
                     if not ok or type(info) ~= "table" then return false end
-                    return info.what ~= "C"
+                    local native = info.what == "C" or info.source == "=[C]" or info.source == "[C]"
+                    return not native
                 end
                 return false
             end
@@ -2628,10 +2631,17 @@ function AntiTamper:apply(ast, pipeline)
                 _outer_err0("Tamper: core functions hooked", 0)
             end
             local function secure_call()
-                local ok = pcall(anti_tamper, diagnostic_mode, use_debug)
+                local ok, reason = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
-                    _outer_err0("Tamper detected", 0)
+                    -- Keep explicit checker verdicts as tamper failures, but do not
+                    -- convert executor API/version probe exceptions into false tags.
+                    local message = tostring(reason)
+                    if message == "invalid binary" or message:sub(1, 7) == "Tamper:" then
+                        _outer_err0("Tamper detected", 0)
+                    end
+                    return false
                 end
+                return true
             end
             secure_call()
             if not is_loadstring then
