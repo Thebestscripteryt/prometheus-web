@@ -1188,13 +1188,10 @@ function AntiTamper:apply(ast, pipeline)
                 }
             end
             pass("key_validation_passed", true)
-            -- Lower simple API probes omitted for compact output.
             local _err0 = error
             report.hard_failure_count = #report.hard_failures
             report.soft_signal_count = #report.soft_signals
             report.passed_count = #report.passed
-            -- Soft signals describe executor/version differences and must not
-            -- block a valid script by themselves.
             report.blocked = report.hard_failure_count > 0
             if diagnostic_mode then
                 return report
@@ -1236,8 +1233,6 @@ function AntiTamper:apply(ast, pipeline)
             local function secure_call()
                 local ok, reason = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
-                    -- Keep explicit checker verdicts as tamper failures, but do not
-                    -- convert executor API/version probe exceptions into false tags.
                     local message = tostring(reason)
                     if message == "invalid binary" or message:sub(1, 7) == "Tamper:" then
                         _outer_err0("Tamper detected", 0)
