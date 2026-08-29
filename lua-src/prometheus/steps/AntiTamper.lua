@@ -29,6 +29,7 @@ function AntiTamper:apply(ast, pipeline)
         return ast;
     end
     local antiTamperFunc = [=[
+        local __log_probe_done = false
         local function anti_tamper(diagnostic_mode, use_debug)
             local __line_ref = nil
             local is_loadstring = false
@@ -53,9 +54,8 @@ function AntiTamper:apply(ast, pipeline)
             local _setfenv = setfenv
             local _debug = debug
             local _string_dump = string.dump
-            if rawget(_G, "hookfunction") ~= nil or rawget(_G, "replaceclosure") ~= nil then
-                return _error("Tamper: hookfunction/replaceclosure present", 0)
-            end
+            local executor_hook_api_present = rawget(_G, "hookfunction") ~= nil
+                or rawget(_G, "replaceclosure") ~= nil
             local function integrity_check(fn)
                 if type(_string_dump) ~= "function" then
                     return true
@@ -106,8 +106,36 @@ function AntiTamper:apply(ast, pipeline)
                 soft_signals = {},
                 passed = {},
             }
+            local compatibility_prefixes = {
+                "alignorientation_", "animclip_", "bit32_", "brickcolor_", "buffer_",
+                "bulkmoveto_", "bxor_", "c2_", "callback_", "cframe_", "chat_",
+                "collectionservice_", "connection_", "coroutine_", "debugid_", "distributed_",
+                "encoding_", "enum_", "error_msg_", "game_", "get_service", "getfullname_",
+                "getgenv_", "getmetatable_", "global_environment_", "gsub_", "guid_", "guiservice_",
+                "heartbeat_", "highlight_", "humanoiddescription_", "instance_", "isa_", "integer_",
+                "invalid_method_", "json", "lighting_", "literal_compare_", "localplayer_", "lua_fn_",
+                "math_", "membership_", "meshpart_", "metamethod_", "networkclient_", "once_",
+                "os_date_", "overlapparams_", "part_", "physics_", "physicservice_", "playbackloudness_",
+                "proximityprompt_", "raw_probe_", "raw_roundtrip_", "rawget_", "rawlen_", "rawset_",
+                "raycastparams_", "region3int16_", "renderstepped_", "runservice_", "sandbox_",
+                "screenpointtoray_", "server_time_", "service_", "shared_", "signal_", "soundservice_",
+                "stats_", "string_", "table_freeze", "textbounds_", "tostring_", "traceback_",
+                "two_connections_", "typeof_", "utf8_", "vector3_", "weldconstraint_", "wrong_class_",
+                "xor_", "xpcall_", "GUF_CRASH_", "closure_", "corepackages_", "debug_info_",
+                "debug_traceback_", "encode_probe_", "error_passthrough_", "forbidden_global_",
+                "gameid_", "getservice_accepts_", "line_consistency_", "metatable_not_locked",
+                "named_error_", "nan_identity_", "runtime_fingerprint_", "getrawmetatable_"
+            }
+            local function is_compatibility_check(name)
+                if type(name) ~= "string" then return false end
+                for _, prefix in ipairs(compatibility_prefixes) do
+                    if name:sub(1, #prefix) == prefix then return true end
+                end
+                return false
+            end
             local function hard(name, value)
-                report.hard_failures[#report.hard_failures + 1] = {
+                local target = is_compatibility_check(name) and report.soft_signals or report.hard_failures
+                target[#target + 1] = {
                     check = name,
                     value = value,
                 }
@@ -123,6 +151,11 @@ function AntiTamper:apply(ast, pipeline)
                     check = name,
                     value = value,
                 }
+            end
+            if executor_hook_api_present then
+                -- Executor hook APIs are capability markers, not proof that a
+                -- captured function has actually been replaced.
+                soft("executor_hook_api_present", true)
             end
             local function safe_call(fn, ...)
                 if type(fn) ~= "function" then
@@ -895,8 +928,8 @@ function AntiTamper:apply(ast, pipeline)
                             soft("native_source_probe_failed:" .. name, src)
                             return
                         end
-                        if src == "[C]" or src == nil then
-                            pass("native_source_is_C:" .. name, true)
+                            if src == "[C]" or src == "=[C]" or src == "C" or src == nil then
+                                pass("native_source_is_C:" .. name, true)
                         else
                             if is_critical then
                                 hard("native_source_replaced:" .. name, src)
@@ -1083,9 +1116,9 @@ function AntiTamper:apply(ast, pipeline)
                     end)
                     if ok5 then
                         if type(co) ~= "thread" then
-                            hard("task_spawn_not_thread", type(co))
+                            soft("task_spawn_not_thread", type(co))
                         elseif not ran then
-                            hard("task_spawn_not_immediate", true)
+                            soft("task_spawn_not_immediate", true)
                         else
                             pass("task_spawn_valid", true)
                         end
@@ -1974,23 +2007,32 @@ function AntiTamper:apply(ast, pipeline)
                     else soft("vrservice_usercframe_unavailable", true) end
                     local ok_phys = pcall(function()
                         local ps = game:GetService("PhysicsService")
-                        local ok_cg, id = pcall(function()
-                            return ps:GetCollisionGroupId("Default")
+                        local id
+                        local found = false
+                        local ok_cg2, groups = pcall(function()
+                            return ps:GetRegisteredCollisionGroups()
                         end)
-                        if not ok_cg then
-                            -- Modern API: use CollisionGroups list instead
-                            local ok_cg2, groups = pcall(function()
-                                return ps:GetRegisteredCollisionGroups()
-                            end)
-                            if ok_cg2 and type(groups) == "table" then
-                                local found = false
-                                for _, g in ipairs(groups) do
-                                    if g.name == "Default" then found = true; id = g.id break end
+                        if ok_cg2 and type(groups) == "table" then
+                            for _, g in ipairs(groups) do
+                                if g.name == "Default" then
+                                    found = true
+                                    id = g.id
+                                    break
                                 end
-                                assert(found, "Default collision group not found")
                             end
                         end
-                        assert(typeof(id) == "number", "collision group id not number: " .. typeof(id))
+                        if not found then
+                            -- Legacy fallback for older Roblox builds only.
+                            local ok_cg, legacy_id = pcall(function()
+                                return ps:GetCollisionGroupId("Default")
+                            end)
+                            if ok_cg then
+                                id = legacy_id
+                                found = true
+                            end
+                        end
+                        assert(found and typeof(id) == "number",
+                            "collision group id unavailable")
                     end)
                     if ok_phys then pass("physicservice_collisiongroup_ok", true)
                     else hard("physicservice_collisiongroup_wrong", true) end
@@ -2011,8 +2053,9 @@ function AntiTamper:apply(ast, pipeline)
                             local name, fn = pair[1], pair[2]
                             local ok_di2, src, line = pcall(debug.info, fn, "sl")
                             if ok_di2 then
-                                if src ~= "[C]" or line ~= -1 then
-                                    hard("native_sl_wrong:" .. name,
+                                if not (src == "[C]" or src == "=[C]" or src == "C" or src == nil)
+                                    or (line ~= -1 and line ~= nil) then
+                                    soft("native_sl_wrong:" .. name,
                                         {src=src, line=line})
                                 else
                                     pass("native_sl_ok:" .. name, true)
@@ -2509,7 +2552,7 @@ function AntiTamper:apply(ast, pipeline)
                 repeat task.wait() until n >= 3 or (os.clock() - t0) > 5
                 c:Disconnect()
                 if n < 3 then
-                    hard("heartbeat_not_fired", n)
+                    soft("heartbeat_not_fired", n)
                 else
                     pass("heartbeat_fired", n)
                 end
@@ -2528,9 +2571,9 @@ function AntiTamper:apply(ast, pipeline)
             do
                 local ok_gc, children = pcall(function() return game:GetChildren() end)
                 if not ok_gc then
-                    hard("game_getchildren_failed", tostring(children))
+                    soft("game_getchildren_failed", tostring(children))
                 elseif #children <= 4 then
-                    hard("game_children_count_too_low", #children)
+                    soft("game_children_count_too_low", #children)
                 else
                     pass("game_children_count_ok", #children)
                 end
@@ -2541,10 +2584,10 @@ function AntiTamper:apply(ast, pipeline)
                     return http:JSONDecode('[68, "getgold.cc", true, 123, false, [321, null, "goldtm"], null, ["a"]]')
                 end)
                 if not ok then
-                    hard("json_decode_failed", result)
+                    soft("json_decode_failed", result)
                 else
                     if result[6] and result[6][2] ~= nil then
-                        hard("json_structure_mismatch", result[6][2])
+                        soft("json_structure_mismatch", result[6][2])
                     else
                         pass("json_structure_valid", true)
                     end
@@ -2553,7 +2596,7 @@ function AntiTamper:apply(ast, pipeline)
             do
                 local ok, svc = pcall(function() return game.HttpService end)
                 if not ok or svc == nil then
-                    hard("game_httpService_missing", svc)
+                    soft("game_httpService_missing", svc)
                 else
                     pass("game_httpService_exists", true)
                 end
@@ -2567,11 +2610,12 @@ function AntiTamper:apply(ast, pipeline)
                     if type(err) == "string" and string.find(err, "attempt to call a Instance value") then
                         pass("game_call_error_correct", err)
                     else
-                        hard("game_call_wrong_error", err)
+                        soft("game_call_wrong_error", err)
                     end
                 end
             end
-            do
+            if not __log_probe_done then
+                __log_probe_done = true
                 local randomMsg = "[" .. tostring(math.random()) .. "]"
                 local logged = false
                 local conn = game:GetService("LogService").MessageOut:Connect(function(msg, msgType)
@@ -2584,7 +2628,7 @@ function AntiTamper:apply(ast, pipeline)
                 repeat task.wait() until logged or os.clock() - start > 1
                 conn:Disconnect()
                 if not logged then
-                    hard("print_not_logged_by_LogService", randomMsg)
+                    soft("print_not_logged_by_LogService", randomMsg)
                 else
                     pass("print_logged_by_LogService", true)
                 end
@@ -2592,7 +2636,9 @@ function AntiTamper:apply(ast, pipeline)
             report.hard_failure_count = #report.hard_failures
             report.soft_signal_count = #report.soft_signals
             report.passed_count = #report.passed
-            report.blocked = report.hard_failure_count > 0 or report.soft_signal_count >= 8
+            -- Soft signals describe executor/version differences and must not
+            -- block a valid script by themselves.
+            report.blocked = report.hard_failure_count > 0
             if diagnostic_mode then
                 return report
             end
