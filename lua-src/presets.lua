@@ -1,5 +1,3 @@
-
-
 return {
     ["Minify"] = {
 
@@ -14,6 +12,11 @@ return {
         Seed = 0;
 
         Steps = {
+
+            {
+                Name = "AntiTamper";
+                Settings = {};
+            },
 
         }
     };
