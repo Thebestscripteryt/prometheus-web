@@ -10,10 +10,10 @@ const LUA_SRC_DIR = path.join(__dirname, "lua-src");
 const LOCAL_LUA_BIN = path.join(__dirname, "vendor", "bin", "lua5.1");
 const LUA_BIN = fs.existsSync(LOCAL_LUA_BIN) ? LOCAL_LUA_BIN : "lua5.1";
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
@@ -58,7 +58,7 @@ function runObfuscation(sourceCode, preset) {
     const child = execFile(
       LUA_BIN,
       args,
-      { cwd: LUA_SRC_DIR, timeout: 30000, maxBuffer: 10 * 1024 * 1024 },
+      { cwd: LUA_SRC_DIR, timeout: 300000, maxBuffer: 100 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
           return reject(new Error(extractCleanError(stderr, stdout, err.message)));
@@ -83,8 +83,8 @@ app.post("/api/obfuscate", upload.none(), async (req, res) => {
     if (!code || typeof code !== "string" || !code.trim()) {
       return res.status(400).json({ error: "No script provided." });
     }
-    if (code.length > 500000) {
-      return res.status(400).json({ error: "Script is too large (max 500KB)." });
+    if (code.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: "Script is too large (max 10MB)." });
     }
     if (!VALID_PRESETS.includes(preset)) {
       return res.status(400).json({ error: "Invalid preset." });
