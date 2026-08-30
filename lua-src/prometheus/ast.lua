@@ -59,6 +59,7 @@ local AstKind = {
 	SubExpression = "SubExpression";
 	MulExpression = "MulExpression";
 	DivExpression = "DivExpression";
+	FloorDivExpression = "FloorDivExpression";
 	ModExpression = "ModExpression";
 	NotExpression = "NotExpression";
 	LenExpression = "LenExpression";
@@ -98,6 +99,7 @@ local astKindExpressionLookup = {
 	[AstKind.SubExpression] = 8;
 	[AstKind.MulExpression] = 7;
 	[AstKind.DivExpression] = 7;
+	[AstKind.FloorDivExpression] = 7;
 	[AstKind.ModExpression] = 7;
 	[AstKind.NotExpression] = 5;
 	[AstKind.LenExpression] = 5;
@@ -648,6 +650,26 @@ function Ast.DivExpression(lhs, rhs, simplify)
 
 	return {
 		kind = AstKind.DivExpression,
+		lhs = lhs,
+		rhs = rhs,
+		isConstant = false,
+	}
+end
+
+function Ast.FloorDivExpression(lhs, rhs, simplify)
+	if(simplify and rhs.isConstant and lhs.isConstant and rhs.value ~= 0) then
+		-- math.floor(a / b) matches Lua/Luau's own // semantics (floors
+		-- toward negative infinity, e.g. -5 // 2 == -3), so folding this way
+		-- keeps constant-folded output identical to what the unfolded
+		-- expression would compute at runtime.
+		local success, val = pcall(function() return math.floor(lhs.value / rhs.value) end);
+		if success then
+			return Ast.ConstantNode(val);
+		end
+	end
+
+	return {
+		kind = AstKind.FloorDivExpression,
 		lhs = lhs,
 		rhs = rhs,
 		isConstant = false,
