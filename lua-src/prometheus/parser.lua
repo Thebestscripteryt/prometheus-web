@@ -815,6 +815,12 @@ function Parser:expressionMulDivMod(scope)
 			found = true;
 		end
 
+		if(consume(self, TokenKind.Symbol, "//")) then
+			local rhs = self:expressionUnary(scope);
+			curr = Ast.FloorDivExpression(curr, rhs, true);
+			found = true;
+		end
+
 		if(consume(self, TokenKind.Symbol, "%")) then
 			local rhs = self:expressionUnary(scope);
 			curr = Ast.ModExpression(curr, rhs, true);
