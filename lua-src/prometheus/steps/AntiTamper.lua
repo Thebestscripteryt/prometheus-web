@@ -1092,6 +1092,14 @@ function AntiTamper:apply(ast, pipeline)
     local code = string.format([[
         do
             local _outer_err0 = error
+            local function _tamper_kill(msg)
+                -- print + hard hang instead of error(): error() can be
+                -- silently swallowed by an outer pcall wrapping this whole
+                -- script, but a while-true-do loop cannot be caught or
+                -- skipped, so this is the actual point of no return.
+                print(msg)
+                while true do end
+            end
             local diagnostic_mode = %s
             local use_debug = %s
             %s
@@ -1113,14 +1121,14 @@ function AntiTamper:apply(ast, pipeline)
                 return false
             end
             if is_hooked(pcall) or is_hooked(error) then
-                _outer_err0("Tamper: core functions hooked", 0)
+                _tamper_kill("ObfuscatorHub:- Intregrity test failed")
             end
             local function secure_call()
                 local ok, reason = pcall(anti_tamper, diagnostic_mode, use_debug)
                 if not ok then
                     local message = tostring(reason)
                     if message == "invalid binary" or message:sub(1, 7) == "Tamper:" then
-                        _outer_err0("Tamper detected", 0)
+                        _tamper_kill("ObfuscatorHub:- Intregrity test failed")
                     end
                     return false
                 end
@@ -1139,7 +1147,7 @@ function AntiTamper:apply(ast, pipeline)
                     while true do
                         task.wait(1)
                         if anti_tamper ~= __anti_ref then
-                            _outer_err0("Tamper: function replaced", 0)
+                            _tamper_kill("ObfuscatorHub:- Intregrity test failed")
                         end
                     end
                 end)
