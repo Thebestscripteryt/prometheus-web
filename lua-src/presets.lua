@@ -129,80 +129,98 @@ return {
         Seed = 0;
 
         Steps = {
+
+            {
+                Name = "AddVararg";
+                Settings = {};
+            },
+
             {
                 Name = "WatermarkCheck";
                 Settings = {
                     Content = "ObfuscatorHub Protection :: Discord https://discord.gg/obfuscaterhub-1406482504193544383 :: Website https://obfuscatorhub.vercel.app/",
                 };
             },
+
             {
                 Name = "MethodCallToIndex";
-                Settings = {}
+                Settings = {};
             },
+
             {
                 Name = "OpaquePredicates";
                 Settings = {
                     Treshold = 1;
                 };
             },
+
             {
                 Name = "JunkCodeInsertion";
                 Settings = {
-                    Treshold = 0.15;
-                    MaxJunkStatements = 3;
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
                 };
             },
+
             {
-                Name = "ProxifyLocals";
+                Name = "SplitStrings";
                 Settings = {
-                    LiteralType = "string";
-                }
+                    Treshold = 1;
+                    MinLength = 1;
+                    MaxLength = 16;
+                    ConcatenationType = "custom";
+                    CustomFunctionType = "local";
+                    CustomLocalFunctionsCount = 3;
+                };
             },
+
             {
                 Name = "EncryptStrings";
-                Settings = {
-
-                };
-            },
-            {
-                Name = "AntiTamper";
                 Settings = {};
             },
-            {
-                Name = "ConstantArray";
-                Settings = {
-                    Treshold    = 1;
-                    StringsOnly = true;
-                    Shuffle     = true;
-                    Rotate      = true;
-                    LocalWrapperTreshold = 0;
-                    Encoding    = "xor";
-                }
-            },
+
             {
                 Name = "NumbersToExpressions";
                 Settings = {
-
-                }
-            },
-            {
-
-                Name = "JunkCodeInsertion";
-                Settings = {
-                    Treshold = 0.15;
-                    MaxJunkStatements = 3;
+                    Treshold = 1;
+                    InternalTreshold = 0.3;
                 };
             },
+
+            {
+                Name = "ProxifyLocals";
+                Settings = {
+                    LiteralType = "any";
+                };
+            },
+
+            {
+                Name = "ConstantArray";
+                Settings = {
+                    Treshold = 1;
+                    StringsOnly = false;
+                    Shuffle = true;
+                    Rotate = true;
+                    LocalWrapperTreshold = 1;
+                    LocalWrapperCount = 3;
+                    LocalWrapperArgCount = 5;
+                    MaxWrapperOffset = 2000;
+                    Encoding = "xor";
+                };
+            },
+
+            {
+                Name = "JunkCodeInsertion";
+                Settings = {
+                    Treshold = 0.1;
+                    MaxJunkStatements = 2;
+                };
+            },
+
             {
                 Name = "WrapInFunction";
                 Settings = {
-
-                }
-            },
-            {
-                Name = "Vmify";
-                Settings = {
-
+                    Iterations = 1;
                 };
             },
         }
@@ -315,6 +333,10 @@ return {
                 };
             },
 
+            {
+                Name = "Vmify";
+                Settings = {};
+            },
         }
     }
 }
