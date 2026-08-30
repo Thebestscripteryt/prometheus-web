@@ -235,43 +235,6 @@
   .status.ok { color: #4ade80; }
   .status.busy { color: var(--flame-2); }
 
-  .console-pane {
-    margin-top: 16px;
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 14px;
-    overflow: hidden;
-    display: none;
-  }
-
-  .console-pane.visible { display: block; }
-
-  .console-log {
-    height: 220px;
-    overflow-y: auto;
-    padding: 12px 16px;
-    font-family: var(--mono);
-    font-size: 12.5px;
-    line-height: 1.7;
-    color: #9aa4af;
-  }
-
-  .console-log .line { white-space: pre-wrap; word-break: break-all; }
-  .console-log .line.warn { color: var(--flame-2); }
-  .console-log .line.error { color: var(--flame-3); }
-  .console-log .line.done { color: #4ade80; }
-
-  .console-log .cursor {
-    display: inline-block;
-    width: 7px;
-    height: 13px;
-    background: var(--flame-2);
-    vertical-align: -2px;
-    animation: blink 1s step-end infinite;
-  }
-
-  @keyframes blink { 50% { opacity: 0; } }
-
   footer {
     text-align: center;
     padding: 24px;
@@ -325,16 +288,6 @@ print(`Hello {name}`)"></textarea>
     </div>
   </div>
 
-  <div class="console-pane" id="consolePane">
-    <div class="pane-header">
-      <span>CONSOLE</span>
-      <div class="pane-header-actions">
-        <button class="copy-btn" id="clearConsoleBtn">Clear</button>
-      </div>
-    </div>
-    <div class="console-log" id="consoleLog"></div>
-  </div>
-
   <p class="status" id="status"></p>
 </main>
 
@@ -359,9 +312,6 @@ print(`Hello {name}`)"></textarea>
   const downloadBtn = document.getElementById("downloadBtn");
   const statusEl = document.getElementById("status");
   const inputLen = document.getElementById("inputLen");
-  const consolePane = document.getElementById("consolePane");
-  const consoleLog = document.getElementById("consoleLog");
-  const clearConsoleBtn = document.getElementById("clearConsoleBtn");
 
   presetGroup.addEventListener("click", (e) => {
     const btn = e.target.closest(".preset-btn");
@@ -375,94 +325,27 @@ print(`Hello {name}`)"></textarea>
     inputLen.textContent = input.value.length.toLocaleString() + " chars";
   });
 
-  function consoleClear() {
-    consoleLog.innerHTML = "";
-  }
-
-  function consoleAppend(text, kind) {
-    // remove any existing blinking cursor before appending a real line
-    const existingCursor = consoleLog.querySelector(".cursor");
-    if (existingCursor) existingCursor.remove();
-
-    const div = document.createElement("div");
-    div.className = "line" + (kind ? " " + kind : "");
-    div.textContent = text;
-    consoleLog.appendChild(div);
-    consoleLog.scrollTop = consoleLog.scrollHeight;
-  }
-
-  function consoleShowCursor() {
-    const existingCursor = consoleLog.querySelector(".cursor");
-    if (existingCursor) return;
-    const span = document.createElement("span");
-    span.className = "cursor";
-    consoleLog.appendChild(span);
-    consoleLog.scrollTop = consoleLog.scrollHeight;
-  }
-
-  clearConsoleBtn.addEventListener("click", consoleClear);
-
-  function classifyLine(line) {
-    if (/warn/i.test(line)) return "warn";
-    if (/error/i.test(line)) return "error";
-    return "";
-  }
-
-  async function obfuscateStream(onLog) {
+  async function obfuscateRequest() {
     const code = input.value;
-    const res = await fetch("/api/obfuscate/stream", {
+    const res = await fetch("/api/obfuscate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code, preset: selectedPreset }),
     });
 
     const contentType = res.headers.get("content-type") || "";
-    if (!contentType.includes("application/x-ndjson")) {
-      // Server responded, but not with our streaming format - most likely
-      // Render's free-tier cold-start loading page (plain HTML) served while
-      // the real process is still spinning up after inactivity.
-      if (!res.ok || !contentType.includes("application/json")) {
-        const err = new Error("COLD_START");
-        err.isColdStart = true;
-        throw err;
-      }
-      // Otherwise it's a plain JSON error response (validation failure before streaming started)
-      const data = await res.json();
-      throw new Error(data.error || "Unknown error");
+    if (!contentType.includes("application/json")) {
+      // The server responded, but not with JSON - most likely Render's
+      // free-tier cold-start loading page (plain HTML) served while the
+      // real process is still spinning up after 15+ minutes of inactivity.
+      const err = new Error("COLD_START");
+      err.isColdStart = true;
+      throw err;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const rawLine = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (!rawLine.trim()) continue;
-        let msg;
-        try {
-          msg = JSON.parse(rawLine);
-        } catch {
-          continue; // ignore malformed/partial lines defensively
-        }
-        if (msg.type === "log") {
-          onLog(msg.line);
-        } else if (msg.type === "result") {
-          return { output: msg.output };
-        } else if (msg.type === "error") {
-          const err = new Error(msg.message || "Obfuscation failed.");
-          err.errType = msg.errType;
-          throw err;
-        }
-      }
-    }
-
-    throw new Error("Connection closed before a result was received.");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Unknown error");
+    return data;
   }
 
   async function obfuscate(isRetry) {
@@ -477,28 +360,18 @@ print(`Hello {name}`)"></textarea>
     output.classList.remove("empty");
     output.textContent = "";
 
-    if (!isRetry) {
-      consoleClear();
-      consolePane.classList.add("visible");
-    }
-    consoleShowCursor();
-
-    const onLog = (line) => consoleAppend(line, classifyLine(line));
-
     try {
       let data;
       try {
         statusEl.textContent = "Obfuscating…";
         statusEl.className = "status busy";
-        data = await obfuscateStream(onLog);
+        data = await obfuscateRequest();
       } catch (err) {
         if (err.isColdStart && !isRetry) {
           statusEl.textContent = "Server is waking up (this can take up to a minute on first use) — retrying…";
           statusEl.className = "status busy";
-          consoleAppend("Server is waking up, retrying in a few seconds…", "warn");
           await new Promise((r) => setTimeout(r, 6000));
-          consoleShowCursor();
-          data = await obfuscateStream(onLog);
+          data = await obfuscateRequest();
         } else if (err.isColdStart) {
           throw new Error("Server is still waking up. Please wait a few seconds and click Obfuscate again.");
         } else {
@@ -506,14 +379,10 @@ print(`Hello {name}`)"></textarea>
         }
       }
 
-      consoleAppend(`Done — ${data.output.length.toLocaleString()} chars output`, "done");
       output.textContent = data.output;
       statusEl.textContent = `Done — ${data.output.length.toLocaleString()} chars output`;
       statusEl.className = "status ok";
     } catch (err) {
-      const existingCursor = consoleLog.querySelector(".cursor");
-      if (existingCursor) existingCursor.remove();
-      consoleAppend("Error: " + err.message, "error");
       output.classList.add("empty");
       output.textContent = "Output will appear here";
       statusEl.textContent = "Error: " + err.message;
