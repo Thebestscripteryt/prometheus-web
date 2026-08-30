@@ -46,6 +46,7 @@ function Compiler:new()
             AstKind.SubExpression,
             AstKind.MulExpression,
             AstKind.DivExpression,
+            AstKind.FloorDivExpression,
             AstKind.ModExpression,
             AstKind.PowExpression,
         };
