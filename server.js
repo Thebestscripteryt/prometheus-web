@@ -1,5 +1,4 @@
 const express = require("express");
-const multer = require("multer");
 const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
@@ -10,10 +9,14 @@ const LUA_SRC_DIR = path.join(__dirname, "lua-src");
 const LOCAL_LUA_BIN = path.join(__dirname, "vendor", "bin", "lua5.1");
 const LUA_BIN = fs.existsSync(LOCAL_LUA_BIN) ? LOCAL_LUA_BIN : "lua5.1";
 
-app.use(express.json({ limit: "2mb" }));
-app.use(express.static(path.join(__dirname, "public")));
-
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
+app.use(express.json());
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
+app.use(express.static(path.join(__dirname, "public"), { maxAge: "1h", etag: true }));
 
 const VALID_PRESETS = ["Minify", "Weak", "Medium", "Strong", "Ultra"];
 
@@ -76,7 +79,7 @@ function runObfuscation(sourceCode, preset) {
   });
 }
 
-app.post("/api/obfuscate", upload.none(), async (req, res) => {
+app.post("/api/obfuscate", async (req, res) => {
   try {
     const { code, preset } = req.body;
 
