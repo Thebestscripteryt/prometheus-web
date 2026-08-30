@@ -1,6 +1,6 @@
 const express = require("express");
 const multer = require("multer");
-const { execFile, spawn } = require("child_process");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
@@ -76,83 +76,6 @@ function runObfuscation(sourceCode, preset) {
   });
 }
 
-// Streaming variant: emits each PROMETHEUS progress line (from stderr) live via
-// onLog as it happens, instead of waiting for the whole process to finish.
-// Heavy presets like Ultra (Vmify alone can take 10+ seconds) previously gave
-// zero feedback until either completion or the timeout silently killed it -
-// this lets the page show real progress and gives a much longer timeout since
-// the person watching it can now tell it's still alive vs. actually hung.
-const STREAM_TIMEOUT_MS = 120000; // 2 minutes - generous headroom above the ~15s Ultra takes locally, for slower hosted CPUs
-
-function runObfuscationStream(sourceCode, preset, { onLog, onDone, onError }) {
-  const args = ["prometheus-main.lua", "--preset", preset, "--out", "-", "-"];
-  const child = spawn(LUA_BIN, args, { cwd: LUA_SRC_DIR });
-
-  const stdoutChunks = [];
-  let stderrLineBuffer = "";
-  let fullStderr = "";
-  let timedOut = false;
-  let settled = false;
-
-  const timer = setTimeout(() => {
-    timedOut = true;
-    child.kill("SIGKILL");
-  }, STREAM_TIMEOUT_MS);
-
-  child.stdin.on("error", () => {});
-  child.stdin.write(sourceCode);
-  child.stdin.end();
-
-  child.stdout.on("data", (chunk) => {
-    stdoutChunks.push(chunk);
-  });
-
-  child.stderr.on("data", (chunk) => {
-    stderrLineBuffer += chunk.toString("utf8");
-    let idx;
-    while ((idx = stderrLineBuffer.indexOf("\n")) >= 0) {
-      const rawLine = stderrLineBuffer.slice(0, idx);
-      stderrLineBuffer = stderrLineBuffer.slice(idx + 1);
-      const line = rawLine.replace(ANSI_PATTERN, "");
-      fullStderr += line + "\n";
-      if (line.trim()) onLog(line);
-    }
-  });
-
-  child.on("error", (err) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    onError(err.message);
-  });
-
-  child.on("close", (code) => {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-
-    if (stderrLineBuffer.trim()) {
-      const line = stderrLineBuffer.replace(ANSI_PATTERN, "");
-      fullStderr += line + "\n";
-      onLog(line);
-    }
-
-    if (timedOut) {
-      return onError(
-        "Obfuscation timed out after 2 minutes. The server may be under heavy load - try again, or use a lighter preset (Strong instead of Ultra)."
-      );
-    }
-    if (code !== 0) {
-      return onError(extractCleanError(fullStderr, "", `Process exited with code ${code}`));
-    }
-    const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-    if (!stdout) {
-      return onError(extractCleanError(fullStderr, "", "Obfuscator did not produce output."));
-    }
-    onDone(stdout);
-  });
-}
-
 app.post("/api/obfuscate", upload.none(), async (req, res) => {
   try {
     const { code, preset } = req.body;
@@ -174,61 +97,6 @@ app.post("/api/obfuscate", upload.none(), async (req, res) => {
     const type = /Parsing Error/i.test(message) ? "syntax_error" : "obfuscation_error";
     res.status(400).json({ error: message, type });
   }
-});
-
-// Streams progress as newline-delimited JSON, one object per line:
-//   {"type":"log","line":"PROMETHEUS: Applying Step \"Vmify\" ..."}
-//   {"type":"result","output":"...final obfuscated code..."}
-//   {"type":"error","message":"...","errType":"obfuscation_error"}
-// The frontend reads this with a streaming fetch reader so the console panel
-// updates live instead of waiting for the whole request to finish.
-app.post("/api/obfuscate/stream", upload.none(), (req, res) => {
-  const { code, preset } = req.body || {};
-
-  if (!code || typeof code !== "string" || !code.trim()) {
-    return res.status(400).json({ error: "No script provided." });
-  }
-  if (code.length > 500000) {
-    return res.status(400).json({ error: "Script is too large (max 500KB)." });
-  }
-  if (!VALID_PRESETS.includes(preset)) {
-    return res.status(400).json({ error: "Invalid preset." });
-  }
-
-  res.status(200);
-  res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("X-Accel-Buffering", "no"); // ask any reverse proxy in front (e.g. Render) not to buffer chunks
-  if (typeof res.flushHeaders === "function") res.flushHeaders();
-
-  let ended = false;
-  const send = (obj) => {
-    if (ended) return;
-    res.write(JSON.stringify(obj) + "\n");
-  };
-  const finish = () => {
-    if (ended) return;
-    ended = true;
-    res.end();
-  };
-
-  req.on("close", () => {
-    // client navigated away / cancelled - nothing more to do, just stop writing
-    ended = true;
-  });
-
-  runObfuscationStream(code, preset, {
-    onLog: (line) => send({ type: "log", line }),
-    onDone: (output) => {
-      send({ type: "result", output });
-      finish();
-    },
-    onError: (message) => {
-      const errType = /Parsing Error/i.test(message) ? "syntax_error" : "obfuscation_error";
-      send({ type: "error", message, errType });
-      finish();
-    },
-  });
 });
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
