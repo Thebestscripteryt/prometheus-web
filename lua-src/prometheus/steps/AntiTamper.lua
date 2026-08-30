@@ -154,7 +154,7 @@ function AntiTamper:apply(ast, pipeline)
             if executor_hook_api_present then
                 -- Executor hook APIs are capability markers, not proof that a
                 -- captured function has actually been replaced.
-                soft("executor_hook_api_present", true)
+                hard("executor_hook_api_present", true)
             end
             local function safe_call(fn, ...)
                 if type(fn) ~= "function" then
@@ -276,7 +276,7 @@ function AntiTamper:apply(ast, pipeline)
                     local value = rawget(env, name)
                     if value ~= nil then
                         if is_loadstring then
-                            soft("loadstring_forbidden:" .. name, value_type(value))
+                            hard("loadstring_forbidden:" .. name, value_type(value))
                         else
                             hard("forbidden_global_present:" .. name, value_type(value))
                         end
@@ -317,11 +317,11 @@ function AntiTamper:apply(ast, pipeline)
                     ok, hook, mask, count = pcall(debug.gethook)
                 end
                 if not ok then
-                    soft("debug_gethook_failed", hook)
+                    hard("debug_gethook_failed", hook)
                     return
                 end
                 if hook ~= nil then
-                    soft("debug_hook_installed", {
+                    hard("debug_hook_installed", {
                         hook_type = type(hook),
                         mask = mask,
                         count = count,
@@ -345,7 +345,7 @@ function AntiTamper:apply(ast, pipeline)
                 end
                 local ok, info = pcall(debug.getinfo, 1, "l")
                 if not ok or type(info) ~= "table" then
-                    soft("line_consistency_probe_failed", info)
+                    hard("line_consistency_probe_failed", info)
                     return
                 end
                 if info.currentline ~= __line_ref then
@@ -372,7 +372,7 @@ function AntiTamper:apply(ast, pipeline)
                 end
                 local ok_running, thread = pcall(coroutine.running)
                 if not ok_running then
-                    soft("coroutine_running_failed", thread)
+                    hard("coroutine_running_failed", thread)
                     return
                 end
                 if thread == nil then
@@ -381,11 +381,11 @@ function AntiTamper:apply(ast, pipeline)
                 end
                 local ok_status, status = pcall(coroutine.status, thread)
                 if not ok_status then
-                    soft("coroutine_status_failed", status)
+                    hard("coroutine_status_failed", status)
                     return
                 end
                 if status ~= "running" then
-                    soft("current_coroutine_not_running", status)
+                    hard("current_coroutine_not_running", status)
                 else
                     pass("current_coroutine_running", true)
                 end
@@ -587,7 +587,7 @@ function AntiTamper:apply(ast, pipeline)
                         end
                         genv[probe_tbl] = nil
                     else
-                        soft("getgenv_call_failed", ok_genv)
+                        hard("getgenv_call_failed", ok_genv)
                     end
                 else
                     pass("getgenv_absent", true)
@@ -613,7 +613,7 @@ function AntiTamper:apply(ast, pipeline)
                 if type(clone_fn) == "function" then
                     local ok_cl2, cloned = pcall(clone_fn, pcall)
                     if ok_cl2 and cloned == pcall then
-                        soft("clonefunction_returned_same_ref", true)
+                        hard("clonefunction_returned_same_ref", true)
                     else
                         pass("clonefunction_distinct", true)
                     end
@@ -625,7 +625,7 @@ function AntiTamper:apply(ast, pipeline)
                     local ok_gc2, calling = pcall(get_calling)
                     if ok_gc2 and calling and typeof and typeof(script) == "Instance"
                         and calling ~= script then
-                        soft("getcallingscript_mismatch", tostring(calling))
+                        hard("getcallingscript_mismatch", tostring(calling))
                     else
                         pass("getcallingscript_valid", true)
                     end
@@ -639,7 +639,7 @@ function AntiTamper:apply(ast, pipeline)
                     if ok_hk and hk_val == 2 then
                         hard("hookfunction_active", hk_val)
                     else
-                        soft("hookfunction_present_but_ineffective", hk_val)
+                        hard("hookfunction_present_but_ineffective", hk_val)
                     end
                 else
                     pass("hookfunction_absent", true)
@@ -744,7 +744,7 @@ function AntiTamper:apply(ast, pipeline)
                     end
                     local ok_depth = pcall(probe_fn)
                     if not ok_depth then
-                        soft("coroutine_stack_depth_too_shallow", 198)
+                        hard("coroutine_stack_depth_too_shallow", 198)
                     else
                         pass("coroutine_stack_depth_ok", 198)
                     end
@@ -757,7 +757,7 @@ function AntiTamper:apply(ast, pipeline)
                     if not v1 or not v2 then
                         hard("error_passthrough_no_digits", { v1 = tostring(v1), v2 = tostring(v2) })
                     elseif v1 == v2 then
-                        soft("error_passthrough_values_identical", v1)
+                        hard("error_passthrough_values_identical", v1)
                     else
                         pass("error_passthrough_distinct", { v1 = v1, v2 = v2 })
                     end
@@ -765,12 +765,12 @@ function AntiTamper:apply(ast, pipeline)
                 if type(debug) == "table" and type(debug.info) == "function" then
                     local function check_native_source(fn, name, is_critical)
                         if type(fn) ~= "function" then
-                            soft("native_source_not_function:" .. name, type(fn))
+                            hard("native_source_not_function:" .. name, type(fn))
                             return
                         end
                         local ok, src = pcall(debug.info, fn, "s")
                         if not ok then
-                            soft("native_source_probe_failed:" .. name, src)
+                            hard("native_source_probe_failed:" .. name, src)
                             return
                         end
                             if src == "[C]" or src == "=[C]" or src == "C" or src == nil then
@@ -779,7 +779,7 @@ function AntiTamper:apply(ast, pipeline)
                             if is_critical then
                                 hard("native_source_replaced:" .. name, src)
                             else
-                                soft("native_source_wrapped:" .. name, src)
+                                hard("native_source_wrapped:" .. name, src)
                             end
                         end
                     end
