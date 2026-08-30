@@ -442,6 +442,46 @@ function AntiTamper:apply(ast, pipeline)
                 else
                     pass("game_is_datamodel", true)
                 end
+                local success = pcall(function()
+                    do
+                        local c = Instance.new("TerrainRegion")
+
+                        assert(typeof(c) == "Instance")
+                        assert(c.ClassName == "TerrainRegion")
+                        assert(c:IsA("TerrainRegion"))
+                        assert(c:IsA("Instance"))
+
+                        local workspaceTerrain = workspace:FindFirstChildOfClass("Terrain")
+                        if workspaceTerrain then
+                            local ok, region = pcall(function()
+                                return workspaceTerrain:CopyRegion(Region3.new(Vector3.new(0, 0, 0), Vector3.new(4, 4, 4)))
+                            end)
+                            if ok and region then
+                                assert(typeof(region) == "TerrainRegion")
+                                assert(region.ClassName == "TerrainRegion")
+                                assert(region:IsA("TerrainRegion"))
+
+                                local size = region.Size
+                                assert(typeof(size) == "Vector3int16")
+                                assert(type(size.X) == "number")
+                                assert(type(size.Y) == "number")
+                                assert(type(size.Z) == "number")
+                            end
+                        end
+
+                        local okCreate = pcall(function()
+                            local part = Instance.new("Part")
+                            local pos = part.Position
+                            part:Destroy()
+                        end)
+                        assert(okCreate)
+                    end
+                end)
+                if not success then
+                    hard("terrainregion_probe_failed", true)
+                else
+                    pass("terrainregion_probe_ok", true)
+                end
                 return {
                     game = game_object,
                 }
