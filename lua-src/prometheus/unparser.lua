@@ -687,6 +687,21 @@ function Unparser:unparseExpression(expression, tabbing)
 		return lhs .. self:optionalWhitespace() .. "/" .. self:optionalWhitespace() .. rhs;
 	end
 	
+	k = AstKind.FloorDivExpression;
+	if(expression.kind == k) then
+		local lhs = self:unparseExpression(expression.lhs, tabbing);
+		if(Ast.astKindExpressionToNumber(expression.lhs.kind) >= Ast.astKindExpressionToNumber(k)) then
+			lhs = "(" .. lhs .. ")";
+		end
+
+		local rhs = self:unparseExpression(expression.rhs, tabbing);
+		if(Ast.astKindExpressionToNumber(expression.rhs.kind) >= Ast.astKindExpressionToNumber(k)) then
+			rhs = "(" .. rhs .. ")";
+		end
+
+		return lhs .. self:optionalWhitespace() .. "//" .. self:optionalWhitespace() .. rhs;
+	end
+	
 	k = AstKind.ModExpression;
 	if(expression.kind == k) then
 		local lhs = self:unparseExpression(expression.lhs, tabbing);
