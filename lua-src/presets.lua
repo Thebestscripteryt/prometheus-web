@@ -296,6 +296,7 @@ return {
                     LocalWrapperArgCount = 5;
                     MaxWrapperOffset = 2000;
                     Encoding = "xor";
+                    Compress = true;
                 };
             },
 
