@@ -315,10 +315,6 @@ return {
                 };
             },
 
-            {
-                Name = "Vmify";
-                Settings = {};
-            },
         }
     }
 }
