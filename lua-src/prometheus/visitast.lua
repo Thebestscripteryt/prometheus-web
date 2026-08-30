@@ -184,6 +184,7 @@ local binaryExpressions = lookupify{
 	AstKind.SubExpression,
 	AstKind.MulExpression,
 	AstKind.DivExpression,
+	AstKind.FloorDivExpression,
 	AstKind.ModExpression,
 	AstKind.PowExpression,
 }
