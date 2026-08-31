@@ -255,7 +255,14 @@ function ProifyLocals:apply(ast, pipeline)
                     local args = shallowcopy(node.rhs);
                     local vexp = Ast.VariableExpression(variable.scope, variable.id);
                     vexp.__ignoreProxifyLocals = true;
-                    args[1] = localMetatableInfo.setValue.constructor(vexp, args[1]);
+                    local rawsetScope, rawsetId = data.scope:resolveGlobal("rawset");
+                    data.scope:addReferenceToHigherScope(rawsetScope, rawsetId);
+                    args = {
+                        Ast.VariableExpression(rawsetScope, rawsetId),
+                        vexp,
+                        Ast.StringExpression(localMetatableInfo.valueName),
+                        args[1],
+                    };
                     self.emptyFunctionUsed = true;
                     data.scope:addReferenceToHigherScope(self.emptyFunctionScope, self.emptyFunctionId);
                     return Ast.FunctionCallStatement(Ast.VariableExpression(self.emptyFunctionScope, self.emptyFunctionId), args);
@@ -290,7 +297,12 @@ function ProifyLocals:apply(ast, pipeline)
                 else
                     literal = RandomLiterals.Any(pipeline);
                 end
-                return localMetatableInfo.getValue.constructor(node, literal);
+                local rawgetScope, rawgetId = data.scope:resolveGlobal("rawget");
+                data.scope:addReferenceToHigherScope(rawgetScope, rawgetId);
+                return Ast.FunctionCallExpression(
+                    Ast.VariableExpression(rawgetScope, rawgetId),
+                    { node, Ast.StringExpression(localMetatableInfo.valueName) }
+                );
             end
         end
 
