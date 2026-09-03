@@ -208,8 +208,32 @@ function ProifyLocals:apply(ast, pipeline)
     self.emptyFunctionId      = ast.body.scope:addVariable();
     self.emptyFunctionUsed    = false;
 
+    -- This is an invoker helper used to obscure direct calls to rawset at call sites
+    -- (see the AssignmentStatement handling below, which calls this with
+    -- {rawset, target, key, value}). It MUST actually forward the call to its first
+    -- argument with the remaining arguments, or every assignment to a proxified local
+    -- silently becomes a no-op.
+    local invokerScope = Scope:new(ast.body.scope);
+    local invokerFnArg = invokerScope:addVariable();
+    local invokerArgA  = invokerScope:addVariable();
+    local invokerArgB  = invokerScope:addVariable();
+    local invokerArgC  = invokerScope:addVariable();
+
     table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.emptyFunctionScope, {self.emptyFunctionId}, {
-        Ast.FunctionLiteralExpression({}, Ast.Block({}, Scope:new(ast.body.scope)));
+        Ast.FunctionLiteralExpression({
+            Ast.VariableExpression(invokerScope, invokerFnArg),
+            Ast.VariableExpression(invokerScope, invokerArgA),
+            Ast.VariableExpression(invokerScope, invokerArgB),
+            Ast.VariableExpression(invokerScope, invokerArgC),
+        }, Ast.Block({
+            Ast.ReturnStatement({
+                Ast.FunctionCallExpression(Ast.VariableExpression(invokerScope, invokerFnArg), {
+                    Ast.VariableExpression(invokerScope, invokerArgA),
+                    Ast.VariableExpression(invokerScope, invokerArgB),
+                    Ast.VariableExpression(invokerScope, invokerArgC),
+                });
+            });
+        }, invokerScope));
     }));
 
     visitast(ast, function(node, data)
