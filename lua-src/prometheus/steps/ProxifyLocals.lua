@@ -4,7 +4,6 @@ local Step = require("prometheus.step");
 local Ast = require("prometheus.ast");
 local Scope = require("prometheus.scope");
 local visitast = require("prometheus.visitast");
-local RandomLiterals = require("prometheus.randomLiterals")
 
 local AstKind = Ast.AstKind;
 local unpack = unpack or table.unpack;
@@ -209,7 +208,6 @@ function ProifyLocals:apply(ast, pipeline)
     self.emptyFunctionId      = ast.body.scope:addVariable();
     self.emptyFunctionUsed    = false;
 
-    
     local invokerScope = Scope:new(ast.body.scope);
     local invokerFnArg = invokerScope:addVariable();
     local invokerArgA  = invokerScope:addVariable();
@@ -231,6 +229,39 @@ function ProifyLocals:apply(ast, pipeline)
                 });
             });
         }, invokerScope));
+    }));
+	
+    self.readHelperScope = ast.body.scope;
+    self.readHelperId    = ast.body.scope:addVariable();
+
+    local readHelperScope = Scope:new(ast.body.scope);
+    local readHelperValueArg = readHelperScope:addVariable();
+    local readHelperKeyArg   = readHelperScope:addVariable();
+    local readHelperTypeScope, readHelperTypeId     = readHelperScope:resolveGlobal("type");
+    local readHelperRawgetScope, readHelperRawgetId = readHelperScope:resolveGlobal("rawget");
+    readHelperScope:addReferenceToHigherScope(readHelperTypeScope, readHelperTypeId);
+    readHelperScope:addReferenceToHigherScope(readHelperRawgetScope, readHelperRawgetId);
+
+    local readHelperValue = Ast.VariableExpression(readHelperScope, readHelperValueArg);
+    local readHelperKey   = Ast.VariableExpression(readHelperScope, readHelperKeyArg);
+    local readHelperCondition = Ast.EqualsExpression(
+        Ast.FunctionCallExpression(Ast.VariableExpression(readHelperTypeScope, readHelperTypeId), { readHelperValue }),
+        Ast.StringExpression("table"),
+        false
+    );
+    local readHelperThen = Ast.Block({
+        Ast.ReturnStatement({Ast.FunctionCallExpression(
+            Ast.VariableExpression(readHelperRawgetScope, readHelperRawgetId),
+            { readHelperValue, readHelperKey }
+        )})
+    }, readHelperScope);
+    local readHelperElse = Ast.Block({
+        Ast.ReturnStatement({readHelperValue})
+    }, readHelperScope);
+    local readHelperBranch = Ast.IfStatement(readHelperCondition, readHelperThen, {}, readHelperElse);
+
+    table.insert(ast.body.statements, 1, Ast.LocalVariableDeclaration(self.readHelperScope, {self.readHelperId}, {
+        Ast.FunctionLiteralExpression({readHelperValue, readHelperKey}, Ast.Block({readHelperBranch}, readHelperScope))
     }));
 
     visitast(ast, function(node, data)
@@ -274,7 +305,7 @@ function ProifyLocals:apply(ast, pipeline)
                 local tempIds = {};
                 for i = 1, #node.lhs do
                     tempIds[i] = doScope:addVariable();
-                    
+						
                     disableMetatableInfo(doScope, tempIds[i]);
                 end
                 local rewritten = {
@@ -336,41 +367,11 @@ function ProifyLocals:apply(ast, pipeline)
             local localMetatableInfo = getLocalMetatableInfo(node.scope, node.id);
 
             if localMetatableInfo then
-                local literal;
-                if self.LiteralType == "dictionary" then
-                    literal = RandomLiterals.Dictionary();
-                elseif self.LiteralType == "number" then
-                    literal = RandomLiterals.Number();
-                elseif self.LiteralType == "string" then
-                    literal = RandomLiterals.String(pipeline);
-                else
-                    literal = RandomLiterals.Any(pipeline);
-                end
-                local readScope = Scope:new(data.scope);
-                local readId = readScope:addVariable();
-                local readValue = Ast.VariableExpression(readScope, readId);
-                local typeScope, typeId = readScope:resolveGlobal("type");
-                local rawgetScope, rawgetId = readScope:resolveGlobal("rawget");
-                readScope:addReferenceToHigherScope(typeScope, typeId);
-                readScope:addReferenceToHigherScope(rawgetScope, rawgetId);
-                local condition = Ast.EqualsExpression(
-                    Ast.FunctionCallExpression(Ast.VariableExpression(typeScope, typeId), { readValue }),
-                    Ast.StringExpression("table"),
-                    false
-                );
-                local thenBody = Ast.Block({
-                    Ast.ReturnStatement({Ast.FunctionCallExpression(
-                        Ast.VariableExpression(rawgetScope, rawgetId),
-                        { readValue, Ast.StringExpression(localMetatableInfo.valueName) }
-                    )})
-                }, readScope);
-                local elseBody = Ast.Block({
-                    Ast.ReturnStatement({readValue})
-                }, readScope);
-                local branch = Ast.IfStatement(condition, thenBody, {}, elseBody);
-                local body = Ast.Block({branch}, readScope);
-                local literal = Ast.FunctionLiteralExpression({readValue}, body);
-                return Ast.FunctionCallExpression(literal, { node });
+                data.scope:addReferenceToHigherScope(self.readHelperScope, self.readHelperId);
+                return Ast.FunctionCallExpression(Ast.VariableExpression(self.readHelperScope, self.readHelperId), {
+                    node,
+                    Ast.StringExpression(localMetatableInfo.valueName),
+                });
             end
         end
 
