@@ -209,11 +209,7 @@ function ProifyLocals:apply(ast, pipeline)
     self.emptyFunctionId      = ast.body.scope:addVariable();
     self.emptyFunctionUsed    = false;
 
-    -- This is an invoker helper used to obscure direct calls to rawset at call sites
-    -- (see the AssignmentStatement handling below, which calls this with
-    -- {rawset, target, key, value}). It MUST actually forward the call to its first
-    -- argument with the remaining arguments, or every assignment to a proxified local
-    -- silently becomes a no-op.
+    
     local invokerScope = Scope:new(ast.body.scope);
     local invokerFnArg = invokerScope:addVariable();
     local invokerArgA  = invokerScope:addVariable();
@@ -274,15 +270,18 @@ function ProifyLocals:apply(ast, pipeline)
 
         if(node.kind == AstKind.AssignmentStatement) then
             if(#node.lhs > 1) then
+                local doScope = Scope:new(node.lhs[1].scope);
                 local tempIds = {};
                 for i = 1, #node.lhs do
-                    tempIds[i] = node.lhs[1].scope:addVariable();
+                    tempIds[i] = doScope:addVariable();
+                    
+                    disableMetatableInfo(doScope, tempIds[i]);
                 end
                 local rewritten = {
-                    Ast.LocalVariableDeclaration(node.lhs[1].scope, tempIds, node.rhs)
+                    Ast.LocalVariableDeclaration(doScope, tempIds, node.rhs)
                 };
                 for i, lhs in ipairs(node.lhs) do
-                    local tempValue = Ast.VariableExpression(node.lhs[1].scope, tempIds[i]);
+                    local tempValue = Ast.VariableExpression(doScope, tempIds[i]);
                     if lhs.kind == AstKind.AssignmentVariable then
                         local localMetatableInfo = getLocalMetatableInfo(lhs.scope, lhs.id);
                         if localMetatableInfo then
@@ -301,8 +300,10 @@ function ProifyLocals:apply(ast, pipeline)
                     else
                         rewritten[#rewritten + 1] = Ast.AssignmentStatement({lhs}, {tempValue});
                     end
-                end
-                return unpack(rewritten);
+					end
+					
+                local doBody = Ast.Block(rewritten, doScope);
+                return Ast.DoStatement(doBody);
             elseif(#node.lhs == 1 and node.lhs[1].kind == AstKind.AssignmentVariable) then
                 local variable = node.lhs[1];
                 local localMetatableInfo = getLocalMetatableInfo(variable.scope, variable.id);
