@@ -7,6 +7,7 @@ local visitast = require("prometheus.visitast");
 local RandomLiterals = require("prometheus.randomLiterals")
 
 local AstKind = Ast.AstKind;
+local unpack = unpack or table.unpack;
 
 local ProifyLocals = Step:extend();
 ProifyLocals.Description = "This Step wraps all locals into Proxy Objects";
@@ -272,21 +273,44 @@ function ProifyLocals:apply(ast, pipeline)
         end
 
         if(node.kind == AstKind.AssignmentStatement) then
-            if(#node.lhs == 1 and node.lhs[1].kind == AstKind.AssignmentVariable) then
+            if(#node.lhs > 1) then
+                local tempIds = {};
+                for i = 1, #node.lhs do
+                    tempIds[i] = node.lhs[1].scope:addVariable();
+                end
+                local rewritten = {
+                    Ast.LocalVariableDeclaration(node.lhs[1].scope, tempIds, node.rhs)
+                };
+                for i, lhs in ipairs(node.lhs) do
+                    local tempValue = Ast.VariableExpression(node.lhs[1].scope, tempIds[i]);
+                    if lhs.kind == AstKind.AssignmentVariable then
+                        local localMetatableInfo = getLocalMetatableInfo(lhs.scope, lhs.id);
+                        if localMetatableInfo then
+                            local target = Ast.VariableExpression(lhs.scope, lhs.id);
+                            target.__ignoreProxifyLocals = true;
+                            local rawsetScope, rawsetId = data.scope:resolveGlobal("rawset");
+                            data.scope:addReferenceToHigherScope(rawsetScope, rawsetId);
+                            rewritten[#rewritten + 1] = Ast.FunctionCallStatement(Ast.VariableExpression(rawsetScope, rawsetId), {
+                                target,
+                                Ast.StringExpression(localMetatableInfo.valueName),
+                                tempValue,
+                            });
+                        else
+                            rewritten[#rewritten + 1] = Ast.AssignmentStatement({lhs}, {tempValue});
+                        end
+                    else
+                        rewritten[#rewritten + 1] = Ast.AssignmentStatement({lhs}, {tempValue});
+                    end
+                end
+                return unpack(rewritten);
+            elseif(#node.lhs == 1 and node.lhs[1].kind == AstKind.AssignmentVariable) then
                 local variable = node.lhs[1];
                 local localMetatableInfo = getLocalMetatableInfo(variable.scope, variable.id);
                 if localMetatableInfo then
                     local args = shallowcopy(node.rhs);
                     local vexp = Ast.VariableExpression(variable.scope, variable.id);
                     vexp.__ignoreProxifyLocals = true;
-                    local rawsetScope, rawsetId = data.scope:resolveGlobal("rawset");
-                    data.scope:addReferenceToHigherScope(rawsetScope, rawsetId);
-                    args = {
-                        Ast.VariableExpression(rawsetScope, rawsetId),
-                        vexp,
-                        Ast.StringExpression(localMetatableInfo.valueName),
-                        args[1],
-                    };
+                    args[1] = localMetatableInfo.setValue.constructor(vexp, args[1]);
                     self.emptyFunctionUsed = true;
                     data.scope:addReferenceToHigherScope(self.emptyFunctionScope, self.emptyFunctionId);
                     return Ast.FunctionCallStatement(Ast.VariableExpression(self.emptyFunctionScope, self.emptyFunctionId), args);
@@ -321,12 +345,31 @@ function ProifyLocals:apply(ast, pipeline)
                 else
                     literal = RandomLiterals.Any(pipeline);
                 end
-                local rawgetScope, rawgetId = data.scope:resolveGlobal("rawget");
-                data.scope:addReferenceToHigherScope(rawgetScope, rawgetId);
-                return Ast.FunctionCallExpression(
-                    Ast.VariableExpression(rawgetScope, rawgetId),
-                    { node, Ast.StringExpression(localMetatableInfo.valueName) }
+                local readScope = Scope:new(data.scope);
+                local readId = readScope:addVariable();
+                local readValue = Ast.VariableExpression(readScope, readId);
+                local typeScope, typeId = readScope:resolveGlobal("type");
+                local rawgetScope, rawgetId = readScope:resolveGlobal("rawget");
+                readScope:addReferenceToHigherScope(typeScope, typeId);
+                readScope:addReferenceToHigherScope(rawgetScope, rawgetId);
+                local condition = Ast.EqualsExpression(
+                    Ast.FunctionCallExpression(Ast.VariableExpression(typeScope, typeId), { readValue }),
+                    Ast.StringExpression("table"),
+                    false
                 );
+                local thenBody = Ast.Block({
+                    Ast.ReturnStatement({Ast.FunctionCallExpression(
+                        Ast.VariableExpression(rawgetScope, rawgetId),
+                        { readValue, Ast.StringExpression(localMetatableInfo.valueName) }
+                    )})
+                }, readScope);
+                local elseBody = Ast.Block({
+                    Ast.ReturnStatement({readValue})
+                }, readScope);
+                local branch = Ast.IfStatement(condition, thenBody, {}, elseBody);
+                local body = Ast.Block({branch}, readScope);
+                local literal = Ast.FunctionLiteralExpression({readValue}, body);
+                return Ast.FunctionCallExpression(literal, { node });
             end
         end
 
