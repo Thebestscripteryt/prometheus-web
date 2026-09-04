@@ -203,10 +203,12 @@ function ProifyLocals:apply(ast, pipeline)
 
     self.setMetatableVarScope = ast.body.scope;
     self.setMetatableVarId    = ast.body.scope:addVariable();
+    disableMetatableInfo(self.setMetatableVarScope, self.setMetatableVarId);
 
     self.emptyFunctionScope   = ast.body.scope;
     self.emptyFunctionId      = ast.body.scope:addVariable();
     self.emptyFunctionUsed    = false;
+    disableMetatableInfo(self.emptyFunctionScope, self.emptyFunctionId);
 
     local invokerScope = Scope:new(ast.body.scope);
     local invokerFnArg = invokerScope:addVariable();
@@ -230,9 +232,10 @@ function ProifyLocals:apply(ast, pipeline)
             });
         }, invokerScope));
     }));
-	
+
     self.readHelperScope = ast.body.scope;
     self.readHelperId    = ast.body.scope:addVariable();
+    disableMetatableInfo(self.readHelperScope, self.readHelperId);
 
     local readHelperScope = Scope:new(ast.body.scope);
     local readHelperValueArg = readHelperScope:addVariable();
@@ -305,7 +308,6 @@ function ProifyLocals:apply(ast, pipeline)
                 local tempIds = {};
                 for i = 1, #node.lhs do
                     tempIds[i] = doScope:addVariable();
-						
                     disableMetatableInfo(doScope, tempIds[i]);
                 end
                 local rewritten = {
@@ -331,8 +333,7 @@ function ProifyLocals:apply(ast, pipeline)
                     else
                         rewritten[#rewritten + 1] = Ast.AssignmentStatement({lhs}, {tempValue});
                     end
-					end
-					
+                end
                 local doBody = Ast.Block(rewritten, doScope);
                 return Ast.DoStatement(doBody);
             elseif(#node.lhs == 1 and node.lhs[1].kind == AstKind.AssignmentVariable) then
